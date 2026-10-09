@@ -1,0 +1,29 @@
+filename,expected,hand_detected,predicted,confidence_score,raw_probability,margin,status_message,match
+A_test.jpg,A,True,Y,19.0,0.19,0.04,"Detected via 'clahe_raw' stage, classified by Random Forest (clahe_raw).",False
+B_test.jpg,B,True,B,99.0,0.99,0.98,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+C_test.jpg,C,True,C,97.0,0.97,0.95,"Detected via 'pad_replicate_50' stage, classified by Random Forest (pad_replicate_50).",True
+D_test.jpg,D,True,D,80.0,0.8,0.77,"Detected via 'pad_reflect_80' stage, classified by Random Forest (pad_reflect_80).",True
+E_test.jpg,E,True,E,97.0,0.97,0.96,"Detected via 'pad_reflect_80' stage, classified by Random Forest (pad_reflect_80).",True
+F_test.jpg,F,True,F,91.0,0.91,0.87,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+G_test.jpg,G,True,G,100.0,1.0,1.0,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+H_test.jpg,H,True,H,83.0,0.83,0.74,"Detected via 'pad_reflect_50' stage, classified by Random Forest (pad_reflect_50).",True
+I_test.jpg,I,True,I,100.0,1.0,1.0,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+J_test.jpg,J,True,J,97.0,0.97,0.96,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+K_test.jpg,K,True,K,92.0,0.92,0.89,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+L_test.jpg,L,True,L,99.0,0.99,0.98,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+M_test.jpg,M,True,M,94.0,0.94,0.9,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+N_test.jpg,N,True,N,75.0,0.75,0.63,"Detected via 'pad_reflect_80' stage, classified by Random Forest (pad_reflect_80).",True
+nothing_test.jpg,nothing,False,NONE,0.0,0.0,0.0,No hand detected after 8 cascading stages.,True
+O_test.jpg,O,True,O,90.0,0.9,0.87,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+P_test.jpg,P,True,P,66.0,0.66,0.41,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+Q_test.jpg,Q,True,Q,97.0,0.97,0.95,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+R_test.jpg,R,True,R,92.0,0.92,0.84,"Detected via 'pad_const_100' stage, classified by Random Forest (pad_const_100).",True
+S_test.jpg,S,True,S,95.0,0.95,0.93,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+space_test.jpg,space,True,space,91.0,0.91,0.88,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+T_test.jpg,T,True,T,91.0,0.91,0.86,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+U_test.jpg,U,True,U,76.0,0.76,0.7,"Detected via 'pad_reflect_50' stage, classified by Random Forest (pad_reflect_50).",True
+V_test.jpg,V,True,V,94.0,0.94,0.91,"Detected via 'pad_reflect_50' stage, classified by Random Forest (pad_reflect_50).",True
+W_test.jpg,W,True,W,73.0,0.73,0.63,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+X_test.jpg,X,True,X,95.0,0.95,0.94,"Detected via 'pad_reflect_50' stage, classified by Random Forest (pad_reflect_50).",True
+Y_test.jpg,Y,True,Y,87.0,0.87,0.81,"Detected via 'raw' stage, classified by Random Forest (raw).",True
+Z_test.jpg,Z,True,Z,44.0,0.44,0.28,"Detected via 'pad_reflect_50' stage, classified by Random Forest (pad_reflect_50).",True

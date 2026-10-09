@@ -1,0 +1,36 @@
+=== Extraction Started: 2026-09-26T10:17:32.350718 ===
+NO_HAND_DETECTED: dataset\C\hand1_c_right_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\del\del10.jpg
+NO_HAND_DETECTED: dataset\del\del101.jpg
+NO_HAND_DETECTED: dataset\del\del103.jpg
+NO_HAND_DETECTED: dataset\del\del104.jpg
+NO_HAND_DETECTED: dataset\del\del106.jpg
+NO_HAND_DETECTED: dataset\E\hand1_e_left_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\E\hand1_e_left_seg_4_cropped.jpeg
+NO_HAND_DETECTED: dataset\E\hand1_e_left_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\J\hand1_j_left_seg_1_cropped.jpeg
+NO_HAND_DETECTED: dataset\J\hand1_j_left_seg_2_cropped.jpeg
+NO_HAND_DETECTED: dataset\J\hand1_j_left_seg_4_cropped.jpeg
+NO_HAND_DETECTED: dataset\M\hand5_m_bot_seg_1_cropped.jpeg
+NO_HAND_DETECTED: dataset\M\hand5_m_bot_seg_2_cropped.jpeg
+NO_HAND_DETECTED: dataset\M\hand5_m_bot_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\M\hand5_m_bot_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\N\hand4_n_bot_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\P\hand5_p_bot_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_bot_seg_1_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_bot_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_bot_seg_4_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_bot_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_dif_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_left_seg_1_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_left_seg_2_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_left_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_left_seg_4_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_left_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_right_seg_4_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_right_seg_5_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_top_seg_1_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_top_seg_2_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_top_seg_3_cropped.jpeg
+NO_HAND_DETECTED: dataset\Q\hand1_q_top_seg_4_cropped.jpeg
+=== Extraction Finished: 2691 images valid, 34 skipped ===
