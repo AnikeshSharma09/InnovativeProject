@@ -1,20 +1,22 @@
 """
-Real-Time Motion-Aware ASL Sign Language Predictor (Deep Learning LSTM).
-
-Features:
-1. MediaPipe 21 Hand Landmark Tracking.
-2. 129-Dimensional Motion Feature Extraction (63 spatial + 63 joint velocities + 3 wrist deltas).
-3. Hand Kinetic Motion Energy Tracking (distinguishes dynamic motion gestures from static poses).
-4. Deep PyTorch MotionSignLSTM Recurrent Inference over rolling sequence windows.
-5. Learned temporal confidence & uncertainty suppression.
-6. Optional fallback to Random Forest baseline.
+Real-Time Gesture & Motion Predictor Engine.
+Supports:
+1. Dual-Hand (Bimanual) Sign Language Recognition:
+   - Synchronized tracking of Left and Right hands (MediaPipe Hands max_num_hands=2)
+   - Inter-hand relational geometry (wrist-to-wrist distance, contact, elevation)
+   - 2-Hand Whole-Word Recognition ("BOOK", "HELP", "MEET", "WORK", "HOUSE", "FINISHED", "PLAY")
+2. Single-Hand Spatial & Recurrent Gesture Recognition:
+   - 39 Base Classes (0-9, A-Z, del, space, nothing) with Random Forest (99.3%) & PyTorch LSTM
+   - 1-Hand Macro Signs ("APPROVED", "PLEASE WAIT", "I AGREE", "DISAGREE", "THANK YOU", "HELLO", "STANDUP")
+3. Adaptive 1€ Anti-Tremor & Shiver Stabilization across both hands.
 """
 import os
 import sys
-from collections import deque, Counter
+import time
+from typing import Optional, List, Tuple, Dict
 from dataclasses import dataclass
+from collections import deque, Counter
 from pathlib import Path
-from typing import Optional, List, Tuple
 import cv2
 import numpy as np
 import joblib
@@ -27,13 +29,19 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from models.lstm_model import MotionSignLSTM, load_lstm_checkpoint
 from utils.landmarks_util import (
     extract_motion_frame_data,
+    extract_motion_features,
     extract_landmarks_from_bgr_frame,
     robust_extract_landmarks_from_bgr_frame,
     draw_styled_landmarks,
+    extract_dual_hands_from_bgr_frame,
+    draw_dual_styled_landmarks,
+    DualHandDetectionResult,
     TOTAL_MOTION_FEATURES,
     DEFAULT_SEQUENCE_LENGTH
 )
 from utils.labels import format_label_for_display
+from utils.stabilizer import LandmarkStabilizer, ProbabilityStabilizer, DualLandmarkStabilizer
+from prediction.phrase_recognizer import EnterprisePhraseRecognizer, PhraseDetectionResult
 
 
 @dataclass
@@ -47,18 +55,33 @@ class PredictionOutput:
     raw_probability: float  # [0.0 - 1.0]
     margin: float
     kinetic_energy: float
-    motion_state: str  # 'STATIC HOLD', 'ACTIVE MOTION', 'FAST MOTION'
+    motion_state: str  # 'STATIC HOLD', 'ACTIVE MOTION', 'FAST MOTION', 'TWO-HANDED GESTURE', 'WHOLE PHRASE'
     buffer_fill: int
     is_uncertain: bool
     is_stable: bool
     stable_label: Optional[str]
     hand_landmarks_proto: Optional[object]
     status_message: str
+    is_shivering: bool = False
+    jitter_score: float = 0.0
+    is_phrase: bool = False
+    phrase_text: Optional[str] = None
+    stabilized_coords: Optional[List[Tuple[float, float, float]]] = None
+    num_hands: int = 1
+    is_two_handed: bool = False
+    left_hand_proto: Optional[object] = None
+    right_hand_proto: Optional[object] = None
+    dual_result: Optional[DualHandDetectionResult] = None
 
 
 class SignPredictor:
     """
-    Production-ready real-time motion-aware predictor powered by PyTorch LSTM.
+    Production-grade inference engine integrating:
+    - Dual-hand (bimanual) and single-hand tracking
+    - 1€ (One-Euro) adaptive anti-tremor stabilization
+    - Deep Learning recurrent motion sequence modeling (PyTorch LSTM)
+    - High-precision static spatial feature classification (Random Forest)
+    - Real-time kinematic phrase and sentence recognition
     """
 
     def __init__(
@@ -70,6 +93,9 @@ class SignPredictor:
         min_confidence: float = 0.35,
         min_margin: float = 0.04,
         engine_mode: str = "auto",
+        enable_stabilization: bool = True,
+        stabilizer_min_cutoff: float = 0.8,
+        stabilizer_beta: float = 0.015,
         device: str = "cpu"
     ):
         self.lstm_model_path = Path(lstm_model_path)
@@ -80,12 +106,28 @@ class SignPredictor:
         self.min_margin = min_margin
         self.engine_mode = engine_mode  # 'auto', 'rf', 'lstm'
         self.device = torch.device(device)
+        self.enable_stabilization = enable_stabilization
+
+        # Biomechanical Stabilizers (One-Euro Filter across Left and Right hands)
+        self.landmark_stabilizer = LandmarkStabilizer(
+            min_cutoff=stabilizer_min_cutoff,
+            beta=stabilizer_beta
+        )
+        self.dual_stabilizer = DualLandmarkStabilizer(
+            min_cutoff=stabilizer_min_cutoff,
+            beta=stabilizer_beta
+        )
+        self.prob_stabilizer = ProbabilityStabilizer(alpha=0.65)
+
+        # Whole-Sentence & Dual-Hand Recognition Engine
+        self.phrase_recognizer = EnterprisePhraseRecognizer()
 
         # Temporal Sequence Window for LSTM (stores last N frames of 129 features)
         self.sequence_buffer: deque = deque(maxlen=sequence_length)
         self.prediction_history: deque = deque(maxlen=10)
         self.prev_raw_coords: Optional[List[Tuple[float, float, float]]] = None
         self.last_stable_label: Optional[str] = None
+        self.tremor_deadband: bool = True
 
         # Load models
         self.lstm_model: Optional[MotionSignLSTM] = None
@@ -94,13 +136,13 @@ class SignPredictor:
         self.classes: List[str] = []
         self._load_models()
 
-        # Initialize MediaPipe Hands for live video stream
+        # Initialize MediaPipe Hands supporting up to 2 hands (Dual Hand / Bimanual)
         self.mp_hands = mp.solutions.hands
         self.hands_detector = self.mp_hands.Hands(
             static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=0.40,
-            min_tracking_confidence=0.40
+            max_num_hands=2,
+            min_detection_confidence=0.35,
+            min_tracking_confidence=0.35
         )
 
     def _load_models(self) -> None:
@@ -117,7 +159,12 @@ class SignPredictor:
         # Load LSTM model if exists
         if self.lstm_model_path.exists():
             try:
-                self.lstm_model, _ = load_lstm_checkpoint(str(self.lstm_model_path), device=self.device)
+                self.lstm_model = load_lstm_checkpoint(
+                    checkpoint_path=str(self.lstm_model_path),
+                    input_size=TOTAL_MOTION_FEATURES,
+                    num_classes=len(self.classes),
+                    device=self.device
+                )
                 print(f"[+] SignPredictor: Loaded Deep Learning LSTM model from {self.lstm_model_path}")
             except Exception as e:
                 print(f"[!] Warning: Could not load LSTM model: {e}")
@@ -141,6 +188,10 @@ class SignPredictor:
         self.prediction_history.clear()
         self.prev_raw_coords = None
         self.last_stable_label = None
+        self.landmark_stabilizer.reset()
+        self.dual_stabilizer.reset()
+        self.prob_stabilizer.reset()
+        self.phrase_recognizer.reset()
 
     def _apply_anatomical_disambiguation(
         self,
@@ -148,11 +199,7 @@ class SignPredictor:
         probs: np.ndarray
     ) -> Tuple[np.ndarray, Optional[str]]:
         """
-        Disambiguates geometrically confused ASL sign pairs using physiological landmark metrics:
-        1. 'C' vs 'O':
-           - 'O': closed loop (thumb and index/middle fingertips touch or meet within aperture <= 0.36)
-           - 'C': open arc (thumb and index/middle fingertips separated by aperture >= 0.44)
-           Aperture is normalized by palm scale (Wrist LM 0 to Middle MCP LM 9 distance).
+        Disambiguates geometrically confused ASL sign pairs using physiological landmark metrics.
         """
         if raw_coords is None or len(raw_coords) < 21:
             return probs, None
@@ -169,7 +216,6 @@ class SignPredictor:
         top2_idx = int(sorted_idx[1]) if len(sorted_idx) > 1 else top1_idx
         top2_label = self.classes[top2_idx]
 
-        # Only evaluate C vs O if one of them is the top-1 candidate or top-2 with close margin
         is_candidate = (top1_label in ("C", "O")) or (top2_label in ("C", "O") and probs[top1_idx] < 0.60)
         if not is_candidate:
             return probs, None
@@ -190,7 +236,6 @@ class SignPredictor:
         disambig_note = None
 
         if aperture >= 0.44:
-            # Thumb and fingers form an open arc -> Physically 'C'
             if top1_label in ("O", "0") or probs[c_idx] < probs[o_idx]:
                 probs = probs.copy()
                 orig_o = probs[o_idx]
@@ -200,7 +245,6 @@ class SignPredictor:
                 probs = probs / np.sum(probs)
                 disambig_note = f"Aperture ({aperture:.2f} >= 0.44) -> 'C'"
         elif aperture <= 0.25:
-            # Fingertips genuinely touch in a closed loop -> Physically 'O'
             if top1_label == "C" and probs[o_idx] >= (probs[c_idx] * 0.5):
                 probs = probs.copy()
                 orig_o = probs[o_idx]
@@ -214,42 +258,106 @@ class SignPredictor:
 
     def predict_frame(self, bgr_frame: np.ndarray) -> PredictionOutput:
         """
-        Processes a single live webcam frame, extracts 129 motion features,
-        updates the rolling sequence window, and evaluates the LSTM network.
+        Processes a single live webcam frame:
+        1. Tracks up to 2 hands (Left & Right) with MediaPipe Hands.
+        2. Applies 1€ anti-tremor stabilization across both hands.
+        3. Evaluates 2-Hand Bimanual Signs ("BOOK", "HELP", "MEET", "WORK", "HOUSE", "FINISHED", "PLAY").
+        4. If not a two-handed sign, executes spatial & LSTM sequence inference on primary hand.
         """
         if bgr_frame is None or bgr_frame.size == 0:
             return self._empty_response("Empty video frame received.")
 
-        # Step 1: Extract 129 motion features
-        motion_vec, curr_coords, hand_landmarks, kinetic_energy = extract_motion_frame_data(
-            bgr_frame=bgr_frame,
-            hands_detector=self.hands_detector,
-            prev_raw_coords=self.prev_raw_coords
-        )
+        # Step 1: Synchronized Dual-Hand Extraction (Left & Right)
+        dual_res = extract_dual_hands_from_bgr_frame(bgr_frame, self.hands_detector)
 
-        if motion_vec is None or curr_coords is None:
-            # Hand temporarily lost
+        if not dual_res.has_hands:
             self.prev_raw_coords = None
             if self.sequence_buffer:
                 self.sequence_buffer.popleft()
-            return self._empty_response("No hand detected in frame.", hand_landmarks)
+            return self._empty_response("No hand detected in frame.", dual_res=dual_res)
+
+        # Prefer Right hand as primary, fallback to Left hand
+        primary_coords = dual_res.right_coords or dual_res.left_coords
+        primary_proto = dual_res.right_hand_proto or dual_res.left_hand_proto
+
+        # Step 2: Apply Biomechanical 1€ Anti-Tremor & Shiver Stabilizer across hands
+        if self.enable_stabilization:
+            stab_left, stab_right, jitter_score, is_shivering = self.dual_stabilizer.stabilize(
+                dual_res.left_coords, dual_res.right_coords
+            )
+            stab_primary = stab_right or stab_left
+            motion_vec, kinetic_energy = extract_motion_features(stab_primary, self.prev_raw_coords)
+            active_coords = stab_primary
+
+            # Tremor Deadband Compensation
+            if self.tremor_deadband and is_shivering and kinetic_energy < 0.048:
+                kinetic_energy = 0.015
+        else:
+            stab_left, stab_right = dual_res.left_coords, dual_res.right_coords
+            active_coords = primary_coords
+            motion_vec, kinetic_energy = extract_motion_features(active_coords, self.prev_raw_coords)
+            jitter_score = 0.0
+            is_shivering = False
+
+        # Step 3: Evaluate Whole-Sentence & Two-Handed (Bimanual) Signs
+        phrase_result = self.phrase_recognizer.update(
+            coords=active_coords,
+            kinetic_energy=kinetic_energy,
+            left_coords=stab_left,
+            right_coords=stab_right,
+            wrist_dist=dual_res.wrist_dist,
+            index_dist=dual_res.index_dist
+        )
+
+        if phrase_result is not None and phrase_result.is_phrase_detected:
+            self.prev_raw_coords = active_coords
+            self.sequence_buffer.append(motion_vec)
+            self.prediction_history.append(phrase_result.phrase_text)
+
+            m_state = "TWO-HANDED GESTURE" if phrase_result.is_bimanual else "WHOLE PHRASE GESTURE"
+            return PredictionOutput(
+                hand_detected=True,
+                predicted_label=phrase_result.phrase_id,
+                display_label=phrase_result.phrase_text,
+                confidence_level="HIGH",
+                confidence_score=round(phrase_result.confidence * 100.0, 1),
+                raw_probability=phrase_result.confidence,
+                margin=0.50,
+                kinetic_energy=round(kinetic_energy, 4),
+                motion_state=m_state,
+                buffer_fill=len(self.sequence_buffer),
+                is_uncertain=False,
+                is_stable=True,
+                stable_label=phrase_result.phrase_text,
+                hand_landmarks_proto=primary_proto,
+                status_message=f"Recognized {'Two-Handed' if phrase_result.is_bimanual else 'Single-Hand'} Sign: '{phrase_result.phrase_text}'",
+                is_shivering=is_shivering,
+                jitter_score=round(jitter_score, 6),
+                is_phrase=True,
+                phrase_text=phrase_result.phrase_text,
+                stabilized_coords=active_coords,
+                num_hands=dual_res.num_hands,
+                is_two_handed=phrase_result.is_bimanual,
+                left_hand_proto=dual_res.left_hand_proto,
+                right_hand_proto=dual_res.right_hand_proto,
+                dual_result=dual_res
+            )
 
         # Update previous frame coordinates
-        self.prev_raw_coords = curr_coords
+        self.prev_raw_coords = active_coords
         self.sequence_buffer.append(motion_vec)
 
-        # Determine motion state based on hand kinetic energy
-        if kinetic_energy > 0.15:
+        # Determine motion state based on stabilized kinetic energy
+        if dual_res.is_bimanual:
+            motion_state = "DUAL HANDS DETECTED"
+        elif kinetic_energy > 0.15:
             motion_state = "FAST MOTION"
         elif kinetic_energy > 0.04:
             motion_state = "ACTIVE MOTION"
         else:
             motion_state = "STATIC HOLD"
 
-        # Step 2: Model Inference based on engine_mode
-        # In 'auto' mode:
-        # - Active motion (kinetic_energy >= 0.04) -> PyTorch LSTM temporal network
-        # - Static hold (kinetic_energy < 0.04) -> High-precision Random Forest (if available) or LSTM
+        # Step 4: Model Inference for Primary Hand (39 Base Classes)
         use_lstm = False
         if self.engine_mode == "lstm" and self.lstm_model is not None:
             use_lstm = True
@@ -264,7 +372,6 @@ class SignPredictor:
                 use_lstm = True
 
         if use_lstm:
-            # Build sequence tensor: shape (1, sequence_length, 129)
             frames = list(self.sequence_buffer)
             while len(frames) < self.sequence_length:
                 frames.insert(0, frames[0])
@@ -275,17 +382,19 @@ class SignPredictor:
             probs = probs_tensor.cpu().numpy()
             model_used_name = "Deep LSTM (Motion)"
         else:
-            # Spatial Classifier (63 normalized coordinates)
             spatial_feat = np.array(motion_vec[:63]).reshape(1, -1)
             probs = self.rf_model.predict_proba(spatial_feat)[0]
             model_used_name = "Random Forest (Spatial)"
 
-        # Step 2.5: Anatomical Geometry Disambiguation (e.g. C vs O aperture)
-        probs, disambig_note = self._apply_anatomical_disambiguation(curr_coords, probs)
+        # Anatomical Disambiguation
+        probs, disambig_note = self._apply_anatomical_disambiguation(active_coords, probs)
         if disambig_note:
             model_used_name += f" [{disambig_note}]"
 
-        # Step 3: Analyze Probability Distribution & Margin
+        # Probability Smoothing
+        probs = self.prob_stabilizer.update(probs)
+
+        # Analyze Probability Distribution
         sorted_indices = np.argsort(probs)[::-1]
         top1_idx = int(sorted_indices[0])
         top2_idx = int(sorted_indices[1]) if len(sorted_indices) > 1 else top1_idx
@@ -295,7 +404,7 @@ class SignPredictor:
         top2_prob = float(probs[top2_idx])
         margin = top1_prob - top2_prob
 
-        # Step 4: Motion-Aware Confidence Evaluation
+        # Confidence Evaluation
         if top1_prob >= 0.60 and margin >= self.min_margin:
             confidence_level = "HIGH"
             is_uncertain = False
@@ -312,7 +421,7 @@ class SignPredictor:
             display_label = "Uncertain Gesture"
             status_message = f"Ambiguous motion transition via {model_used_name}."
 
-        # Step 5: Temporal Consistency & Stability
+        # Temporal Consistency & Debouncing
         if not is_uncertain:
             self.prediction_history.append(display_label)
         else:
@@ -343,8 +452,18 @@ class SignPredictor:
             is_uncertain=is_uncertain,
             is_stable=is_stable,
             stable_label=stable_label,
-            hand_landmarks_proto=hand_landmarks,
-            status_message=status_message
+            hand_landmarks_proto=primary_proto,
+            status_message=status_message,
+            is_shivering=is_shivering,
+            jitter_score=round(jitter_score, 6),
+            is_phrase=False,
+            phrase_text=None,
+            stabilized_coords=active_coords,
+            num_hands=dual_res.num_hands,
+            is_two_handed=dual_res.is_bimanual,
+            left_hand_proto=dual_res.left_hand_proto,
+            right_hand_proto=dual_res.right_hand_proto,
+            dual_result=dual_res
         )
 
     def predict_image(
@@ -361,37 +480,40 @@ class SignPredictor:
         if bgr_image is None or bgr_image.size == 0:
             return self._empty_response("No image data provided."), annotated_image
 
-        # Robust multi-stage hand landmark extraction
         features_63, hand_landmarks, raw_coords, stage_name = robust_extract_landmarks_from_bgr_frame(
             bgr_image
         )
 
         if features_63 is None:
-            return self._empty_response(f"No hand detected after 8 cascading stages."), annotated_image
+            return self._empty_response("No hand detected after 8 cascading stages."), annotated_image
 
-        # Draw styled landmarks onto original image coordinates
-        draw_styled_landmarks(annotated_image, hand_landmarks or raw_coords)
+        if annotated_image is not None and hand_landmarks is not None:
+            draw_styled_landmarks(annotated_image, hand_landmarks)
 
-        # Determine model to evaluate
-        selected_model = model_type or ("rf" if self.rf_model is not None else "lstm")
+        probs = None
+        model_name = "Random Forest (Spatial)"
 
-        if selected_model == "rf" and self.rf_model is not None:
-            probs = self.rf_model.predict_proba(np.array(features_63).reshape(1, -1))[0]
-            model_name = f"Random Forest ({stage_name})"
-        elif self.lstm_model is not None:
-            # Replicate zero-velocity vector across sequence length
+        if model_type == "lstm" and self.lstm_model is not None:
             motion_vec = features_63 + [0.0] * 63 + [0.0, 0.0, 0.0]
             seq_array = np.array([motion_vec] * self.sequence_length, dtype=np.float32).reshape(1, self.sequence_length, TOTAL_MOTION_FEATURES)
             seq_tensor = torch.tensor(seq_array, dtype=torch.float32).to(self.device)
-            probs = self.lstm_model.predict_probabilities(seq_tensor)[0].cpu().numpy()
-            model_name = f"LSTM Projection ({stage_name})"
+            probs_t = self.lstm_model.predict_probabilities(seq_tensor)[0]
+            probs = probs_t.cpu().numpy()
+            model_name = "Deep LSTM (Static Projection)"
         elif self.rf_model is not None:
-            probs = self.rf_model.predict_proba(np.array(features_63).reshape(1, -1))[0]
-            model_name = f"Random Forest ({stage_name})"
-        else:
-            return self._empty_response("No trained model available."), annotated_image
+            spatial_feat = np.array(features_63).reshape(1, -1)
+            probs = self.rf_model.predict_proba(spatial_feat)[0]
+        elif self.lstm_model is not None:
+            motion_vec = features_63 + [0.0] * 63 + [0.0, 0.0, 0.0]
+            seq_array = np.array([motion_vec] * self.sequence_length, dtype=np.float32).reshape(1, self.sequence_length, TOTAL_MOTION_FEATURES)
+            seq_tensor = torch.tensor(seq_array, dtype=torch.float32).to(self.device)
+            probs_t = self.lstm_model.predict_probabilities(seq_tensor)[0]
+            probs = probs_t.cpu().numpy()
+            model_name = "Deep LSTM (Fallback)"
 
-        # Anatomical Disambiguation
+        if probs is None:
+            return self._empty_response("No valid model available for inference."), annotated_image
+
         probs, disambig_note = self._apply_anatomical_disambiguation(raw_coords, probs)
         if disambig_note:
             model_name += f" [{disambig_note}]"
@@ -426,7 +548,8 @@ class SignPredictor:
     def _empty_response(
         self,
         message: str,
-        landmarks: Optional[object] = None
+        landmarks: Optional[object] = None,
+        dual_res: Optional[DualHandDetectionResult] = None
     ) -> PredictionOutput:
         """Returns empty/idle response state."""
         return PredictionOutput(
@@ -444,7 +567,12 @@ class SignPredictor:
             is_stable=False,
             stable_label=None,
             hand_landmarks_proto=landmarks,
-            status_message=message
+            status_message=message,
+            num_hands=0,
+            is_two_handed=False,
+            left_hand_proto=None,
+            right_hand_proto=None,
+            dual_result=dual_res
         )
 
     def close(self) -> None:

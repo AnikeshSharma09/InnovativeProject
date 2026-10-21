@@ -2,13 +2,14 @@
 Streamlit Web Application for Real-Time Motion-Aware Sign Language Detection & Recognition.
 
 Features:
-- Live Webcam Feed with MediaPipe Landmark Mesh Visualization
-- Real-Time ASL Motion Gesture Prediction (PyTorch Deep Learning LSTM)
-- 129-Dimensional Motion Feature Analysis & Kinetic Energy Tracking
-- Recognized Text Accumulation & Editing (Add, Space, Backspace, Clear)
-- Offline Text-to-Speech Narration (pyttsx3)
-- Image Upload with Temporal Motion Projection
-- Model Metrics & Confusion Matrix Inspection Dashboard
+- Live Webcam with MediaPipe 21 Landmark Mesh Visualization
+- Adaptive 1€ (One-Euro) Anti-Shiver & Tremor Landmark Stabilization
+- Direct Real-Time Sign-Driven Predicted Sentence & Word Recognition
+- Automatic Persistent Logging to File (`data/predicted_signs.txt`)
+- Real-Time Closed-Captions HUD (Zoom / Teams Screen-Share Compatible)
+- Multi-Dataset Explorer (ASL Alphabet 39 classes, WLASL 2000 words, MS-ASL)
+- High-Precision Spatial Random Forest (99.3%) + PyTorch Deep Motion LSTM
+- Offline Text-to-Speech (pyttsx3)
 """
 import os
 import sys
@@ -27,16 +28,19 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from prediction.predictor import SignPredictor
 from utils.landmarks_util import (
     draw_styled_landmarks,
+    draw_dual_styled_landmarks,
     robust_extract_landmarks_from_bgr_frame,
     TOTAL_MOTION_FEATURES
 )
 from utils.labels import format_label_for_display
 from utils.speech import speak_text
+from utils.sentence_engine import EnterpriseSentenceEngine
+from utils.prediction_logger import PredictionLogger
 import torch
 
 # Page Configuration
 st.set_page_config(
-    page_title="Motion-Aware Sign Language Recognition (LSTM)",
+    page_title="Motion-Aware Sign Language Recognition | Real-Time AI",
     page_icon="🤟",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -53,21 +57,32 @@ st.markdown("""
         margin-bottom: 0.2rem;
     }
     .sub-header {
-        font-size: 1.05rem;
+        font-size: 1.02rem;
         color: #4B5563;
         text-align: center;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.2rem;
     }
     .text-box {
-        background-color: #F1F5F9;
+        background-color: #F8FAFC;
         border: 2px solid #CBD5E1;
-        border-radius: 8px;
-        padding: 1rem;
-        font-size: 1.4rem;
-        font-weight: 600;
-        min-height: 70px;
+        border-radius: 10px;
+        padding: 1.1rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        min-height: 75px;
         color: #0F172A;
         word-wrap: break-word;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .file-card {
+        background-color: #F0FDF4;
+        border: 1px solid #BBF7D0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+        font-size: 0.92rem;
+        color: #166534;
     }
     .badge-active {
         background-color: #DCFCE7;
@@ -101,6 +116,46 @@ st.markdown("""
         border-radius: 12px;
         display: inline-block;
     }
+    .badge-shiver {
+        background-color: #F3E8FF;
+        color: #6B21A8;
+        font-weight: 700;
+        padding: 4px 12px;
+        border-radius: 12px;
+        display: inline-block;
+    }
+    .badge-phrase {
+        background-color: #FEF08A;
+        color: #854D0E;
+        font-weight: 800;
+        padding: 6px 14px;
+        border-radius: 12px;
+        display: inline-block;
+        border: 1px solid #EAB308;
+    }
+    .cc-hud {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        color: #F8FAFC;
+        padding: 14px 20px;
+        border-radius: 10px;
+        border-left: 6px solid #38BDF8;
+        margin-top: 10px;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .cc-speaker {
+        color: #38BDF8;
+        font-weight: 700;
+        font-size: 0.88rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .cc-content {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin-top: 4px;
+        color: #FFFFFF;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -112,9 +167,15 @@ if "webcam_running" not in st.session_state:
     st.session_state.webcam_running = False
 if "last_stable_char" not in st.session_state:
     st.session_state.last_stable_char = ""
+if "sentence_engine" not in st.session_state:
+    st.session_state.sentence_engine = EnterpriseSentenceEngine()
+if "pred_logger" not in st.session_state:
+    st.session_state.pred_logger = PredictionLogger()
+if "speaker_name" not in st.session_state:
+    st.session_state.speaker_name = "Alex (ASL Presenter)"
 
 
-@st.cache_resource(show_spinner="Loading Deep Learning LSTM model...")
+@st.cache_resource(show_spinner="Loading Deep Learning LSTM model & Landmark Stabilizers...")
 def load_predictor():
     """Caches the SignPredictor instance to avoid reloading models on every rerun."""
     try:
@@ -122,16 +183,19 @@ def load_predictor():
             lstm_model_path="models/sign_lstm.pth",
             encoder_path="models/label_encoder.pkl",
             rf_model_path="models/sign_model.pkl",
-            sequence_length=20
+            sequence_length=20,
+            enable_stabilization=True
         )
     except FileNotFoundError:
         return None
 
 
-def get_motion_badge_html(motion_state: str, is_uncertain: bool) -> str:
-    """Returns styled HTML badge for hand kinetic motion state."""
+def get_motion_badge_html(motion_state: str, is_uncertain: bool, is_shivering: bool) -> str:
+    """Returns styled HTML badge for hand kinetic motion state & anti-shiver status."""
     if is_uncertain:
         return '<span class="badge-uncertain">⚠️ UNCERTAIN / TRANSITION</span>'
+    elif is_shivering:
+        return '<span class="badge-shiver">🛡️ SHIVER DAMPENED (STABILIZED)</span>'
     elif motion_state == "ACTIVE MOTION":
         return '<span class="badge-active">⚡ ACTIVE MOTION</span>'
     elif motion_state == "FAST MOTION":
@@ -141,10 +205,12 @@ def get_motion_badge_html(motion_state: str, is_uncertain: bool) -> str:
 
 
 def main():
-    st.markdown('<div class="main-header">🤟 Real-Time Motion-Aware Sign Language Recognition</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Deep Learning Recurrent Architecture (PyTorch LSTM) with 129 Spatiotemporal Motion Features & Kinetic Tracking</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">🤟 Real-Time Motion-Aware Sign Language AI</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Direct Sign-to-Word & Sentence Prediction • 1€ Anti-Tremor Filter • Persistent File Logger • Multi-Dataset</div>', unsafe_allow_html=True)
 
     predictor = load_predictor()
+    engine: EnterpriseSentenceEngine = st.session_state.sentence_engine
+    logger: PredictionLogger = st.session_state.pred_logger
 
     # Sidebar: System configuration and details
     with st.sidebar:
@@ -154,7 +220,7 @@ def main():
             if predictor.lstm_model is not None and predictor.rf_model is not None:
                 st.success("🟢 Dual Engines: **PyTorch LSTM + Random Forest**")
             elif predictor.lstm_model is not None:
-                st.success("🟢 Deep Learning Model: **PyTorch LSTM**")
+                st.success("🟢 Deep Learning: **PyTorch LSTM**")
             else:
                 st.info("🟡 Baseline Model: **Random Forest**")
             
@@ -181,95 +247,164 @@ def main():
             st.warning("Please train the model first:\n```bash\npython training/train_lstm.py\n```")
 
         st.markdown("---")
+        st.subheader("🛡️ Anti-Tremor & Shiver Control")
+        enable_stabilization = st.checkbox(
+            "Adaptive 1€ Anti-Tremor Filter",
+            value=True,
+            help="Filters high-frequency hand tremors and shivering while preserving fast transitions with zero lag."
+        )
+        min_cutoff = st.slider(
+            "Tremor Smoothing (Min Cutoff fc_min)",
+            min_value=0.1,
+            max_value=3.0,
+            value=0.8,
+            step=0.1,
+            help="Lower values dampen stronger resting hand tremors."
+        )
+        beta_val = st.slider(
+            "Dynamic Responsiveness (Beta)",
+            min_value=0.001,
+            max_value=0.08,
+            value=0.015,
+            step=0.002,
+            help="Higher values eliminate latency during rapid hand repositioning."
+        )
+        enable_deadband = st.checkbox(
+            "Tremor Kinetic Deadband",
+            value=True,
+            help="Clamps false kinetic velocity spikes caused by hand tremors, keeping static signs rock-solid."
+        )
+
+        if predictor is not None:
+            predictor.enable_stabilization = enable_stabilization
+            predictor.landmark_stabilizer.min_cutoff = min_cutoff
+            predictor.landmark_stabilizer.beta = beta_val
+            predictor.tremor_deadband = enable_deadband
+
+        st.markdown("---")
+        st.subheader("📁 Prediction Storage File")
+        st.code(str(logger.file_path.resolve()), language="bash")
+        
+        st.markdown("---")
         st.subheader("🎥 Camera Settings")
         camera_id = st.selectbox("Select Webcam Device Index", options=[0, 1, 2], index=0)
 
         st.markdown("---")
-        st.subheader("🧠 Motion Parameters")
-        st.caption("• **Spatial Features**: 63 relative coordinates")
-        st.caption("• **Velocity Features**: 63 joint speed deltas")
-        st.caption("• **Global Trajectory**: 3 wrist deltas (dx, dy, dz)")
-        st.caption("• **Total Input**: 129 features per frame")
-
-        if st.button("🧹 Reset Sequence Buffer"):
+        if st.button("🧹 Reset Sentence & Sequence Buffer"):
             if predictor:
                 predictor.reset_buffer()
-            st.success("Buffer reset.")
+            engine.reset()
+            st.session_state.accumulated_text = ""
+            st.success("Buffers reset.")
 
-    # Main Tabs
+    # Main Tabs: Cleaned to 3 focused tabs
     tab_webcam, tab_upload, tab_metrics = st.tabs([
-        "📹 Live Motion Webcam Recognition",
-        "🖼️ Static Image Analysis",
-        "📊 LSTM Model Evaluation & Confusion Matrix"
+        "📹 Live Motion Webcam & Prediction Logger",
+        "🖼️ Static Image Analysis & Dataset Explorer",
+        "📊 LSTM Model Evaluation & Metrics"
     ])
 
     # =========================================================================
-    # TAB 1: LIVE WEBCAM RECOGNITION
+    # TAB 1: LIVE WEBCAM RECOGNITION & PREDICTION LOGGER
     # =========================================================================
     with tab_webcam:
         col_video, col_info = st.columns([3, 2])
 
         with col_info:
-            st.subheader("🎯 Real-Time Status")
+            st.subheader("🎯 Real-Time Detection Status")
+            metric_hands_box = st.empty()
             metric_pred_box = st.empty()
             metric_prob_box = st.empty()
             metric_motion_box = st.empty()
+            metric_shiver_box = st.empty()
+            metric_phrase_box = st.empty()
             metric_buffer_box = st.empty()
 
             st.markdown("---")
-            st.subheader("📝 Recognized Sentence")
+            st.subheader("📝 Predicted Sentence & Words Through Signs")
             text_display_box = st.empty()
+            
+            current_sentence = engine.get_full_sentence(include_current=True) or "(Predicted sign sentence will form here as you sign...)"
             text_display_box.markdown(
-                f'<div class="text-box">{st.session_state.accumulated_text or "(Recognized text will appear here...)"}</div>',
+                f'<div class="text-box">{current_sentence}</div>',
                 unsafe_allow_html=True
             )
 
-            # Sentence Builder Controls
+            # Persistent File Storage Info Card
+            st.markdown(
+                f'<div class="file-card">'
+                f'💾 <b>Persistent File Storage Active:</b><br>'
+                f'<code>{logger.file_path.as_posix()}</code>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            # Manual Sentence Controls
             c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button("➕ Add Current", use_container_width=True):
                     if st.session_state.last_stable_char:
-                        char = st.session_state.last_stable_char
-                        if char == "space":
-                            st.session_state.accumulated_text += " "
-                        elif char == "del":
-                            st.session_state.accumulated_text = st.session_state.accumulated_text[:-1]
-                        elif char != "nothing":
-                            st.session_state.accumulated_text += char
+                        engine.add_character(st.session_state.last_stable_char)
                         text_display_box.markdown(
-                            f'<div class="text-box">{st.session_state.accumulated_text}</div>',
+                            f'<div class="text-box">{engine.get_full_sentence()}</div>',
                             unsafe_allow_html=True
                         )
             with c2:
-                if st.button("␣ Space", use_container_width=True):
-                    st.session_state.accumulated_text += " "
+                if st.button("␣ Space / Commit", use_container_width=True):
+                    committed = engine.commit_current_word(autocorrect=False)
+                    if committed:
+                        logger.log_prediction(committed, tag="WORD")
                     text_display_box.markdown(
-                        f'<div class="text-box">{st.session_state.accumulated_text}</div>',
+                        f'<div class="text-box">{engine.get_full_sentence()}</div>',
                         unsafe_allow_html=True
                     )
             with c3:
                 if st.button("⌫ Backspace", use_container_width=True):
-                    st.session_state.accumulated_text = st.session_state.accumulated_text[:-1]
+                    engine.backspace()
                     text_display_box.markdown(
-                        f'<div class="text-box">{st.session_state.accumulated_text}</div>',
+                        f'<div class="text-box">{engine.get_full_sentence()}</div>',
                         unsafe_allow_html=True
                     )
 
             c4, c5 = st.columns(2)
             with c4:
-                if st.button("🗑️ Clear Text", use_container_width=True):
-                    st.session_state.accumulated_text = ""
-                    text_display_box.markdown(
-                        f'<div class="text-box">(Cleared)</div>',
-                        unsafe_allow_html=True
-                    )
+                if st.button("💾 Save Sentence Now", use_container_width=True):
+                    full_txt = engine.get_full_sentence(include_current=False)
+                    if full_txt.strip():
+                        logger.log_prediction(full_txt, tag="SENTENCE")
+                        st.success(f"Saved: '{full_txt}' to file!")
+                    else:
+                        st.warning("Current sentence is empty.")
             with c5:
                 if st.button("🔊 Speak Text", use_container_width=True, type="primary"):
-                    if st.session_state.accumulated_text.strip():
-                        speak_text(st.session_state.accumulated_text)
-                        st.toast(f"Speaking: '{st.session_state.accumulated_text}'")
+                    full_txt = engine.get_full_sentence(include_current=False)
+                    if full_txt.strip():
+                        speak_text(full_txt)
+                        st.toast(f"Speaking: '{full_txt}'")
                     else:
-                        st.warning("Sentence buffer is empty! Perform signs first.")
+                        st.warning("Sentence is empty! Perform signs first.")
+
+            # File Management Section
+            st.markdown("---")
+            st.markdown("#### 📄 Stored Predictions File Actions")
+            
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                file_text = logger.get_file_content()
+                st.download_button(
+                    "📥 Download Log File (.txt)",
+                    data=file_text,
+                    file_name="predicted_signs.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            with f_col2:
+                if st.button("🗑️ Clear Log File", use_container_width=True):
+                    logger.clear()
+                    st.toast("Predictions log file cleared.")
+
+            with st.expander("📜 View File Contents (`data/predicted_signs.txt`)", expanded=False):
+                st.text_area("Recent File Log", value=logger.get_file_content(), height=180)
 
         with col_video:
             btn_col1, btn_col2 = st.columns(2)
@@ -277,6 +412,16 @@ def main():
                 start_btn = st.button("▶️ Start Webcam", use_container_width=True, type="primary")
             with btn_col2:
                 stop_btn = st.button("⏹️ Stop Webcam", use_container_width=True)
+
+            # Live Closed-Captions HUD Banner
+            cc_placeholder = st.empty()
+            cc_placeholder.markdown(
+                f'<div class="cc-hud">'
+                f'<div class="cc-speaker">🎙️ LIVE ASL PREDICTED SIGNS</div>'
+                f'<div class="cc-content">{engine.get_full_sentence() or "Awaiting sign language input..."}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
             video_placeholder = st.empty()
 
@@ -296,6 +441,7 @@ def main():
                     else:
                         auto_commit_counter = 0
                         last_auto_char = ""
+                        last_rendered_phrase = ""
 
                         while st.session_state.webcam_running:
                             ret, frame = cap.read()
@@ -304,13 +450,25 @@ def main():
                                 break
 
                             frame = cv2.flip(frame, 1)
+                            h, w, _ = frame.shape
                             pred = predictor.predict_frame(frame)
 
-                            # Draw landmarks on frame
-                            if pred.hand_detected and pred.hand_landmarks_proto:
-                                draw_styled_landmarks(frame, pred.hand_landmarks_proto)
+                            # Draw landmarks on frame (Dual-Hand or Single-Hand)
+                            if pred.hand_detected:
+                                if pred.dual_result is not None:
+                                    draw_dual_styled_landmarks(frame, pred.dual_result)
+                                elif pred.hand_landmarks_proto:
+                                    draw_styled_landmarks(frame, pred.hand_landmarks_proto)
 
-                            # Handle automatic stable character debouncing
+                            # Check for whole-sentence / macro phrase
+                            if pred.is_phrase and pred.phrase_text:
+                                if pred.phrase_text != last_rendered_phrase:
+                                    engine.add_phrase(pred.phrase_text)
+                                    logger.log_prediction(pred.phrase_text, tag="2-HAND" if pred.is_two_handed else "PHRASE")
+                                    last_rendered_phrase = pred.phrase_text
+                                    st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '🎉'} Sign Detected: {pred.phrase_text}")
+
+                            # Automatic character accumulation debouncing
                             if pred.is_stable and pred.stable_label and not pred.is_uncertain:
                                 st.session_state.last_stable_char = pred.stable_label
                                 if pred.stable_label == last_auto_char:
@@ -319,24 +477,77 @@ def main():
                                     auto_commit_counter += 1
                                     if auto_commit_counter >= 15:  # ~0.5 seconds stable hold
                                         ch = pred.stable_label
-                                        if ch == "space":
-                                            st.session_state.accumulated_text += " "
-                                        elif ch == "del":
-                                            st.session_state.accumulated_text = st.session_state.accumulated_text[:-1]
-                                        elif ch != "nothing":
-                                            st.session_state.accumulated_text += ch
+                                        engine.add_character(ch)
                                         last_auto_char = ch
                                         auto_commit_counter = 0
-                                        text_display_box.markdown(
-                                            f'<div class="text-box">{st.session_state.accumulated_text}</div>',
-                                            unsafe_allow_html=True
-                                        )
                             else:
                                 auto_commit_counter = 0
                                 if not pred.hand_detected:
                                     last_auto_char = ""
+                                    last_rendered_phrase = ""
+
+                            # Check pause autospace (automatically commits and stores finished word)
+                            if engine.current_word and (time.time() - engine.last_char_timestamp) > engine.pause_autospace_seconds:
+                                word_saved = engine.commit_current_word(autocorrect=False)
+                                if word_saved:
+                                    logger.log_prediction(word_saved, tag="WORD")
+
+                            # Render native on-frame Closed Caption bar for screen recording / sharing
+                            cv2.rectangle(frame, (0, h - 75), (w, h), (15, 23, 42), -1)
+                            disp_cc = engine.get_full_sentence() or "(Listening for sign language...)"
+                            cv2.putText(
+                                frame,
+                                f"[SIGN PREDICTION]: {disp_cc[:65]}",
+                                (20, h - 30),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.75,
+                                (255, 255, 255),
+                                2,
+                                cv2.LINE_AA
+                            )
+
+                            if pred.is_shivering:
+                                cv2.putText(
+                                    frame,
+                                    f"SHIVER STABILIZED (Jitter={pred.jitter_score:.1f}px)",
+                                    (20, 35),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.65,
+                                    (240, 160, 255),
+                                    2,
+                                    cv2.LINE_AA
+                                )
+                            elif pred.is_two_handed:
+                                cv2.putText(
+                                    frame,
+                                    f"2-HANDS: {pred.phrase_text}",
+                                    (20, 35),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.85,
+                                    (50, 255, 120),
+                                    2,
+                                    cv2.LINE_AA
+                                )
+                            elif pred.is_phrase:
+                                cv2.putText(
+                                    frame,
+                                    f"PHRASE: {pred.phrase_text}",
+                                    (20, 35),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.8,
+                                    (60, 240, 120),
+                                    2,
+                                    cv2.LINE_AA
+                                )
 
                             # Update Real-time Status Card
+                            if pred.num_hands == 2:
+                                metric_hands_box.markdown("🙌 **Mode:** `Dual-Hand (2 Hands Active)`")
+                            elif pred.num_hands == 1:
+                                metric_hands_box.markdown("✋ **Mode:** `Single Hand Active`")
+                            else:
+                                metric_hands_box.markdown("⚪ **Mode:** `Awaiting Hand Presence`")
+
                             disp_sign = pred.display_label if pred.hand_detected else "NO HAND DETECTED"
                             metric_pred_box.markdown(f"### Predicted Sign: **{disp_sign}**")
                             metric_prob_box.markdown(
@@ -344,11 +555,31 @@ def main():
                                 f"<small style='color: #64748b;'>{pred.status_message}</small>",
                                 unsafe_allow_html=True
                             )
-                            badge_html = get_motion_badge_html(pred.motion_state, pred.is_uncertain)
+                            badge_html = get_motion_badge_html(pred.motion_state, pred.is_uncertain, pred.is_shivering)
                             metric_motion_box.markdown(f"**Kinetic State:** {badge_html} (Energy: `{pred.kinetic_energy:.3f}`)", unsafe_allow_html=True)
                             
+                            if pred.is_shivering:
+                                metric_shiver_box.markdown(f"🛡️ **Anti-Shiver Status:** Active (`Jitter: {pred.jitter_score:.2f}px` filtered)")
+                            else:
+                                metric_shiver_box.markdown(f"🛡️ **Anti-Shiver Status:** Monitoring (`Jitter: {pred.jitter_score:.2f}px`)")
+
+                            if pred.is_phrase and pred.phrase_text:
+                                icon = "🙌 2-HAND" if pred.is_two_handed else "✨ PHRASE"
+                                metric_phrase_box.markdown(f'<div class="badge-phrase">{icon}: {pred.phrase_text}</div>', unsafe_allow_html=True)
+                            else:
+                                metric_phrase_box.empty()
+
                             buffer_ratio = pred.buffer_fill / max(1, predictor.sequence_length)
                             metric_buffer_box.markdown(f"**LSTM Temporal Window:** `[{pred.buffer_fill}/{predictor.sequence_length} frames buffered]` ({buffer_ratio:.0%})")
+
+                            # Update Closed Captions HUD
+                            cc_placeholder.markdown(
+                                f'<div class="cc-hud">'
+                                f'<div class="cc-speaker">🎙️ LIVE ASL PREDICTED SIGNS</div>'
+                                f'<div class="cc-content">{disp_cc}</div>'
+                                f'</div>',
+                                unsafe_allow_html=True
+                            )
 
                             # Convert BGR to RGB for Streamlit rendering
                             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -356,16 +587,16 @@ def main():
 
                         cap.release()
             else:
-                video_placeholder.info("Webcam is idle. Click **'Start Webcam'** above to begin live motion detection.")
+                video_placeholder.info("Webcam is idle. Click **'Start Webcam'** above to begin live motion detection and captions.")
 
     # =========================================================================
-    # TAB 2: STATIC IMAGE ANALYSIS
+    # TAB 2: STATIC IMAGE ANALYSIS & DATASET EXPLORER
     # =========================================================================
     with tab_upload:
-        st.subheader("🖼️ High-Precision Gesture Image Analysis")
+        st.subheader("🖼️ High-Precision Gesture Image Analysis & Multi-Dataset Explorer")
         st.markdown(
-            "Test hand landmark detection and sign classification on any uploaded image "
-            "or directly select from the **Kaggle ASL Alphabet test dataset**."
+            "Test hand landmark detection, 1€ anti-shiver stabilization, and sign classification on any uploaded image "
+            "or explore across available datasets (**ASL Alphabet**, **WLASL 2000 Words**, and **MS-ASL**)."
         )
 
         dataset_dir = Path("dataset")
@@ -374,11 +605,17 @@ def main():
         if not dataset_dir.exists():
             dataset_dir = Path("archive/asl_alphabet_test/asl_alphabet_test")
 
+        wlasl_dir = Path("archive/wlasl")
+
         tab2_col_mode, tab2_col_model = st.columns(2)
         with tab2_col_mode:
+            options_source = ["📁 Upload Image from Computer", "📦 Select Sample from ASL Alphabet (39 Classes: 0-9, A-Z)"]
+            if wlasl_dir.exists():
+                options_source.append("📚 Explore WLASL Word Dataset (2,000 Sign Words)")
+
             image_source = st.radio(
-                "Select Image Source:",
-                options=["📁 Upload Image from Computer", "📦 Select Sample from Dataset (39 Classes: 0-9, A-Z)"],
+                "Select Image / Dataset Source:",
+                options=options_source,
                 horizontal=True
             )
         with tab2_col_model:
@@ -396,7 +633,7 @@ def main():
             uploaded_file = st.file_uploader(
                 "Choose an image (JPG, PNG, WEBP, BMP)",
                 type=["jpg", "jpeg", "png", "webp", "bmp"],
-                key="tab2_file_uploader"
+                key="tab3_file_uploader"
             )
             if uploaded_file is not None:
                 try:
@@ -409,6 +646,14 @@ def main():
                             st.error("Could not decode uploaded image format. Please try another image file.")
                 except Exception as ex:
                     st.error(f"Error reading uploaded file: {ex}")
+        elif "WLASL Word Dataset" in image_source:
+            class_list_file = wlasl_dir / "wlasl_class_list.txt"
+            if class_list_file.exists():
+                with open(class_list_file, "r", encoding="utf-8") as f:
+                    wlasl_words = [line.strip().split("\t")[-1] for line in f if line.strip()]
+                st.info(f"📚 **WLASL Dataset:** {len(wlasl_words)} sign language vocabulary words loaded from `archive/wlasl` (11,980 video clips available).")
+                selected_word = st.selectbox("Search / Browse WLASL Sign Word:", options=wlasl_words, index=0)
+                st.caption(f"Selected Sign: **{selected_word}**. Video representations are available in `archive/wlasl/videos`.")
         else:
             if dataset_dir.exists() and dataset_dir.is_dir():
                 subdirs = sorted([d.name for d in dataset_dir.iterdir() if d.is_dir() and d.name.lower() != "asl_dataset"])
@@ -507,18 +752,13 @@ def main():
                     except Exception:
                         pass
 
-                if st.button("➕ Append to Recognized Sentence", type="primary"):
+                if st.button("➕ Append to Predicted Sentence & Log to File", type="primary"):
                     char = pred.predicted_label
-                    if char == "space":
-                        st.session_state.accumulated_text += " "
-                    elif char == "del":
-                        st.session_state.accumulated_text = st.session_state.accumulated_text[:-1]
-                    elif char != "nothing":
-                        st.session_state.accumulated_text += char
-                    st.success(f"Appended '{char}'! Current sentence: {st.session_state.accumulated_text}")
+                    engine.add_character(char)
+                    logger.log_prediction(char, tag="SIGN")
+                    st.success(f"Appended & logged '{char}'! Current sentence: {engine.get_full_sentence()}")
             else:
                 st.warning(f"⚠️ {pred.status_message}")
-                st.info("The image was inspected through all 8 robust detection stages (raw, reflection padding, replicate padding, constant padding, and CLAHE contrast enhancement). If this image contains a hand, ensure the palm is not occluded.")
 
     # =========================================================================
     # TAB 3: MODEL PERFORMANCE & METRICS
@@ -572,8 +812,6 @@ def main():
                     st.dataframe(df_report, use_container_width=True, height=450)
         else:
             st.info("No evaluation results found yet. Run `python training/evaluate_lstm.py` to evaluate your trained LSTM on the 20% test dataset.")
-
-
 
 
 if __name__ == "__main__":

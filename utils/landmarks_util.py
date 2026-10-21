@@ -10,6 +10,7 @@ Supports:
 Ensures 100% strict mathematical parity between dataset training and live video inference.
 """
 from typing import List, Optional, Tuple, Dict
+from dataclasses import dataclass
 import cv2
 import numpy as np
 
@@ -382,4 +383,192 @@ def draw_styled_landmarks(
             pass
 
     return image
+
+
+@dataclass
+class DualHandDetectionResult:
+    """Encapsulates synchronized detection of Left & Right hands."""
+    has_hands: bool
+    num_hands: int
+    left_hand_proto: Optional[object]
+    right_hand_proto: Optional[object]
+    left_coords: Optional[List[Tuple[float, float, float]]]
+    right_coords: Optional[List[Tuple[float, float, float]]]
+    left_normalized_63: Optional[List[float]]
+    right_normalized_63: Optional[List[float]]
+    wrist_dist: float = 0.0
+    index_dist: float = 0.0
+    thumb_dist: float = 0.0
+    palms_touching: bool = False
+    is_bimanual: bool = False
+
+
+def extract_dual_hands_from_bgr_frame(
+    bgr_frame: np.ndarray,
+    hands_detector
+) -> DualHandDetectionResult:
+    """
+    Extracts up to 2 hands (Left & Right) with inter-hand relational geometry.
+    If 1 hand is present, identifies left/right and leaves the other as None.
+    If 2 hands are present, computes wrist-to-wrist and fingertip distances.
+    """
+    if bgr_frame is None or bgr_frame.size == 0 or hands_detector is None:
+        return DualHandDetectionResult(
+            has_hands=False, num_hands=0,
+            left_hand_proto=None, right_hand_proto=None,
+            left_coords=None, right_coords=None,
+            left_normalized_63=None, right_normalized_63=None
+        )
+
+    rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+    rgb_frame.flags.writeable = False
+    results = hands_detector.process(rgb_frame)
+    rgb_frame.flags.writeable = True
+
+    if not results.multi_hand_landmarks:
+        return DualHandDetectionResult(
+            has_hands=False, num_hands=0,
+            left_hand_proto=None, right_hand_proto=None,
+            left_coords=None, right_coords=None,
+            left_normalized_63=None, right_normalized_63=None
+        )
+
+    num_hands = len(results.multi_hand_landmarks)
+    left_proto = None
+    right_proto = None
+    left_coords = None
+    right_coords = None
+
+    if num_hands == 1:
+        hand = results.multi_hand_landmarks[0]
+        label = "Right"
+        if results.multi_handedness and len(results.multi_handedness) > 0:
+            label = results.multi_handedness[0].classification[0].label
+
+        coords = [(lm.x, lm.y, lm.z) for lm in hand.landmark]
+        if label == "Left":
+            left_proto = hand
+            left_coords = coords
+        else:
+            right_proto = hand
+            right_coords = coords
+    else:
+        # 2 hands detected - classify by handedness or horizontal position fallback
+        hand_0 = results.multi_hand_landmarks[0]
+        hand_1 = results.multi_hand_landmarks[1]
+        coords_0 = [(lm.x, lm.y, lm.z) for lm in hand_0.landmark]
+        coords_1 = [(lm.x, lm.y, lm.z) for lm in hand_1.landmark]
+
+        label_0 = "Right"
+        label_1 = "Left"
+        if results.multi_handedness and len(results.multi_handedness) >= 2:
+            label_0 = results.multi_handedness[0].classification[0].label
+            label_1 = results.multi_handedness[1].classification[0].label
+
+        if label_0 != label_1:
+            if label_0 == "Left":
+                left_proto, left_coords = hand_0, coords_0
+                right_proto, right_coords = hand_1, coords_1
+            else:
+                right_proto, right_coords = hand_0, coords_0
+                left_proto, left_coords = hand_1, coords_1
+        else:
+            # Fallback: Leftmost hand on screen is Left
+            if coords_0[0][0] < coords_1[0][0]:
+                left_proto, left_coords = hand_0, coords_0
+                right_proto, right_coords = hand_1, coords_1
+            else:
+                left_proto, left_coords = hand_1, coords_1
+                right_proto, right_coords = hand_0, coords_0
+
+    # Compute normalized spatial coordinates (63 each)
+    left_norm = normalize_landmarks(left_coords) if left_coords else None
+    right_norm = normalize_landmarks(right_coords) if right_coords else None
+
+    # Compute inter-hand relational features if both hands present
+    wrist_dist = 0.0
+    index_dist = 0.0
+    thumb_dist = 0.0
+    palms_touching = False
+    is_bimanual = (left_coords is not None and right_coords is not None)
+
+    if is_bimanual:
+        wl = np.array(left_coords[0])
+        wr = np.array(right_coords[0])
+        il = np.array(left_coords[8])
+        ir = np.array(right_coords[8])
+        tl = np.array(left_coords[4])
+        tr = np.array(right_coords[4])
+
+        wrist_dist = float(np.linalg.norm(wl - wr))
+        index_dist = float(np.linalg.norm(il - ir))
+        thumb_dist = float(np.linalg.norm(tl - tr))
+        palms_touching = bool(wrist_dist < 0.20 and index_dist < 0.20)
+
+    return DualHandDetectionResult(
+        has_hands=True,
+        num_hands=num_hands,
+        left_hand_proto=left_proto,
+        right_hand_proto=right_proto,
+        left_coords=left_coords,
+        right_coords=right_coords,
+        left_normalized_63=left_norm,
+        right_normalized_63=right_norm,
+        wrist_dist=wrist_dist,
+        index_dist=index_dist,
+        thumb_dist=thumb_dist,
+        palms_touching=palms_touching,
+        is_bimanual=is_bimanual
+    )
+
+
+def draw_dual_styled_landmarks(
+    image: np.ndarray,
+    dual_result: DualHandDetectionResult
+) -> np.ndarray:
+    """
+    Renders Left hand (Cyan/Blue) and Right hand (Green/Orange) landmarks,
+    with an inter-hand distance guide when both hands are visible.
+    """
+    if not dual_result.has_hands or image is None:
+        return image
+
+    h, w = image.shape[:2]
+
+    # 1. Draw Left Hand (Cyan nodes, Blue skeleton)
+    if dual_result.left_coords:
+        pts_l = [(int(x * w), int(y * h)) for x, y, _ in dual_result.left_coords]
+        for start_idx, end_idx in HAND_CONNECTIONS:
+            if 0 <= start_idx < len(pts_l) and 0 <= end_idx < len(pts_l):
+                cv2.line(image, pts_l[start_idx], pts_l[end_idx], (230, 180, 50), 2, cv2.LINE_AA)
+        for px, py in pts_l:
+            cv2.circle(image, (px, py), 4, (255, 220, 0), -1, cv2.LINE_AA)
+            cv2.circle(image, (px, py), 2, (255, 255, 255), -1, cv2.LINE_AA)
+        # Left hand label
+        cv2.putText(image, "L", (pts_l[0][0] - 15, pts_l[0][1] + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 220, 0), 2)
+
+    # 2. Draw Right Hand (Green nodes, Emerald skeleton)
+    if dual_result.right_coords:
+        pts_r = [(int(x * w), int(y * h)) for x, y, _ in dual_result.right_coords]
+        for start_idx, end_idx in HAND_CONNECTIONS:
+            if 0 <= start_idx < len(pts_r) and 0 <= end_idx < len(pts_r):
+                cv2.line(image, pts_r[start_idx], pts_r[end_idx], (50, 220, 120), 2, cv2.LINE_AA)
+        for px, py in pts_r:
+            cv2.circle(image, (px, py), 4, (0, 255, 120), -1, cv2.LINE_AA)
+            cv2.circle(image, (px, py), 2, (255, 255, 255), -1, cv2.LINE_AA)
+        # Right hand label
+        cv2.putText(image, "R", (pts_r[0][0] + 10, pts_r[0][1] + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 120), 2)
+
+    # 3. If Bimanual (Both hands present): draw inter-hand relationship line between wrists
+    if dual_result.is_bimanual and dual_result.left_coords and dual_result.right_coords:
+        wl_pt = (int(dual_result.left_coords[0][0] * w), int(dual_result.left_coords[0][1] * h))
+        wr_pt = (int(dual_result.right_coords[0][0] * w), int(dual_result.right_coords[0][1] * h))
+        cv2.line(image, wl_pt, wr_pt, (200, 200, 255), 1, cv2.LINE_AA)
+        mid_x = (wl_pt[0] + wr_pt[0]) // 2
+        mid_y = (wl_pt[1] + wr_pt[1]) // 2
+        cv2.putText(image, f"2-HANDS (d={dual_result.wrist_dist:.2f})", (mid_x - 55, mid_y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 255), 1, cv2.LINE_AA)
+
+    return image
+
 

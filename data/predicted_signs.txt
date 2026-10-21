@@ -1,0 +1,5 @@
+# Real-Time Sign Language Predicted Text Log
+# Started: 2026-10-21 18:59:52
+# ------------------------------------------------------------
+[2026-10-21 18:59:52] [WORD] TEST WORD
+[2026-10-21 18:59:52] [SENTENCE] HELLO WORLD THIS IS A SIGNED SENTENCE
