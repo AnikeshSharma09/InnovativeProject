@@ -311,8 +311,21 @@ def main():
         st.code(str(logger.file_path.resolve()), language="bash")
         
         st.markdown("---")
-        st.subheader("🎥 Camera Settings")
-        camera_id = st.selectbox("Select Webcam Device Index", options=[0, 1, 2], index=0)
+        st.subheader("🎥 Camera & Performance")
+        c_cam1, c_cam2 = st.columns([1, 1])
+        with c_cam1:
+            camera_id = st.selectbox("Webcam Index", options=[0, 1, 2], index=0)
+        with c_cam2:
+            perf_mode = st.selectbox(
+                "FPS Mode",
+                options=["Balanced (30 FPS)", "High Speed (60 FPS)", "Power Saver (20 FPS)"],
+                index=0
+            )
+
+        if st.button("🔄 Force Release Camera Device", help="Click if webcam appears locked or busy by Windows"):
+            st.session_state.webcam_running = False
+            cv2.destroyAllWindows()
+            st.toast("Camera hardware released.")
 
         st.markdown("---")
         if st.button("🧹 Reset Sentence & Sequence Buffer"):
@@ -460,158 +473,198 @@ def main():
                 if predictor is None:
                     st.error("Cannot start webcam without a trained LSTM model.")
                 else:
-                    cap = cv2.VideoCapture(camera_id)
+                    # Windows DirectShow backend avoids MSMF memory buffer locks & freezes
+                    cap = None
+                    if sys.platform.startswith("win"):
+                        try:
+                            cap = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
+                            if not cap.isOpened():
+                                cap = None
+                        except Exception:
+                            cap = None
+
+                    if cap is None:
+                        cap = cv2.VideoCapture(camera_id)
+
                     if not cap.isOpened():
-                        st.error(f"Could not open webcam index {camera_id}.")
+                        st.error(
+                            f"Could not open webcam index {camera_id}. "
+                            "Please ensure no other application (Zoom, Teams, Camera app) is using the camera, "
+                            "or click 'Force Release Camera Device' in the sidebar."
+                        )
                         st.session_state.webcam_running = False
                     else:
+                        # Hardware camera tuning: 640x480 standard resolution + 1 frame buffer (zero lag)
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        cap.set(cv2.CAP_PROP_FPS, 30)
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
                         auto_commit_counter = 0
                         last_auto_char = ""
                         last_rendered_phrase = ""
+                        frame_idx = 0
 
-                        while st.session_state.webcam_running:
-                            ret, frame = cap.read()
-                            if not ret:
-                                st.warning("Camera disconnected or frame dropped.")
-                                break
+                        # Throttling step based on performance mode
+                        metric_step = 2 if "60 FPS" in perf_mode else (4 if "Power Saver" in perf_mode else 3)
+                        sleep_time = 0.002 if "60 FPS" in perf_mode else (0.015 if "Power Saver" in perf_mode else 0.006)
 
-                            frame = cv2.flip(frame, 1)
-                            h, w, _ = frame.shape
-                            pred = predictor.predict_frame(frame)
+                        try:
+                            while st.session_state.webcam_running:
+                                ret, frame = cap.read()
+                                if not ret or frame is None:
+                                    st.warning("Camera disconnected or frame dropped.")
+                                    break
 
-                            # Draw landmarks on frame (Dual-Hand or Single-Hand)
-                            if pred.hand_detected:
-                                if pred.dual_result is not None:
-                                    draw_dual_styled_landmarks(frame, pred.dual_result)
-                                elif pred.hand_landmarks_proto:
-                                    draw_styled_landmarks(frame, pred.hand_landmarks_proto)
+                                frame_idx += 1
+                                frame = cv2.flip(frame, 1)
+                                h, w, _ = frame.shape
 
-                            # Check for whole-sentence / macro phrase
-                            if pred.is_phrase and pred.phrase_text:
-                                if pred.phrase_text != last_rendered_phrase:
-                                    engine.add_phrase(pred.phrase_text)
-                                    logger.log_prediction(pred.phrase_text, tag="2-HAND" if pred.is_two_handed else "PHRASE")
-                                    last_rendered_phrase = pred.phrase_text
-                                    st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '🎉'} Sign Detected: {pred.phrase_text}")
+                                # Ensure lightweight display size if camera defaulted to high resolution
+                                if w > 640:
+                                    frame = cv2.resize(frame, (640, int(640 * h / w)))
+                                    h, w, _ = frame.shape
 
-                            # Automatic character accumulation debouncing
-                            if pred.is_stable and pred.stable_label and not pred.is_uncertain:
-                                st.session_state.last_stable_char = pred.stable_label
-                                if pred.stable_label == last_auto_char:
-                                    auto_commit_counter = 0
-                                else:
-                                    auto_commit_counter += 1
-                                    if auto_commit_counter >= 15:  # ~0.5 seconds stable hold
-                                        ch = pred.stable_label
-                                        engine.add_character(ch)
-                                        last_auto_char = ch
+                                pred = predictor.predict_frame(frame)
+
+                                # Draw landmarks on frame (Dual-Hand or Single-Hand)
+                                if pred.hand_detected:
+                                    if pred.dual_result is not None:
+                                        draw_dual_styled_landmarks(frame, pred.dual_result)
+                                    elif pred.hand_landmarks_proto:
+                                        draw_styled_landmarks(frame, pred.hand_landmarks_proto)
+
+                                # Check for whole-sentence / macro phrase
+                                if pred.is_phrase and pred.phrase_text:
+                                    if pred.phrase_text != last_rendered_phrase:
+                                        engine.add_phrase(pred.phrase_text)
+                                        logger.log_prediction(pred.phrase_text, tag="2-HAND" if pred.is_two_handed else "PHRASE")
+                                        last_rendered_phrase = pred.phrase_text
+                                        st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '🎉'} Sign Detected: {pred.phrase_text}")
+
+                                # Automatic character accumulation debouncing
+                                if pred.is_stable and pred.stable_label and not pred.is_uncertain:
+                                    st.session_state.last_stable_char = pred.stable_label
+                                    if pred.stable_label == last_auto_char:
                                         auto_commit_counter = 0
-                            else:
-                                auto_commit_counter = 0
-                                if not pred.hand_detected:
-                                    last_auto_char = ""
-                                    last_rendered_phrase = ""
+                                    else:
+                                        auto_commit_counter += 1
+                                        if auto_commit_counter >= 15:  # ~0.5 seconds stable hold
+                                            ch = pred.stable_label
+                                            engine.add_character(ch)
+                                            last_auto_char = ch
+                                            auto_commit_counter = 0
+                                else:
+                                    auto_commit_counter = 0
+                                    if not pred.hand_detected:
+                                        last_auto_char = ""
+                                        last_rendered_phrase = ""
 
-                            # Check pause autospace (automatically commits and stores finished word)
-                            if engine.current_word and (time.time() - engine.last_char_timestamp) > engine.pause_autospace_seconds:
-                                word_saved = engine.commit_current_word(autocorrect=False)
-                                if word_saved:
-                                    logger.log_prediction(word_saved, tag="WORD")
+                                # Check pause autospace (automatically commits and stores finished word)
+                                if engine.current_word and (time.time() - engine.last_char_timestamp) > engine.pause_autospace_seconds:
+                                    word_saved = engine.commit_current_word(autocorrect=False)
+                                    if word_saved:
+                                        logger.log_prediction(word_saved, tag="WORD")
 
-                            # Render native on-frame Closed Caption bar for screen recording / sharing
-                            cv2.rectangle(frame, (0, h - 75), (w, h), (15, 23, 42), -1)
-                            disp_cc = engine.get_full_sentence() or "(Listening for sign language...)"
-                            cv2.putText(
-                                frame,
-                                f"[SIGN PREDICTION]: {disp_cc[:65]}",
-                                (20, h - 30),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.75,
-                                (255, 255, 255),
-                                2,
-                                cv2.LINE_AA
-                            )
-
-                            if pred.is_shivering:
+                                # Render native on-frame Closed Caption bar for screen recording / sharing
+                                cv2.rectangle(frame, (0, h - 70), (w, h), (15, 23, 42), -1)
+                                disp_cc = engine.get_full_sentence() or "(Listening for sign language...)"
                                 cv2.putText(
                                     frame,
-                                    f"SHIVER STABILIZED (Jitter={pred.jitter_score:.1f}px)",
-                                    (20, 35),
+                                    f"[SIGN PREDICTION]: {disp_cc[:60]}",
+                                    (15, h - 25),
                                     cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.65,
-                                    (240, 160, 255),
-                                    2,
-                                    cv2.LINE_AA
-                                )
-                            elif pred.is_two_handed:
-                                cv2.putText(
-                                    frame,
-                                    f"2-HANDS: {pred.phrase_text}",
-                                    (20, 35),
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.85,
-                                    (50, 255, 120),
-                                    2,
-                                    cv2.LINE_AA
-                                )
-                            elif pred.is_phrase:
-                                cv2.putText(
-                                    frame,
-                                    f"PHRASE: {pred.phrase_text}",
-                                    (20, 35),
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.8,
-                                    (60, 240, 120),
+                                    0.68,
+                                    (255, 255, 255),
                                     2,
                                     cv2.LINE_AA
                                 )
 
-                            # Update Real-time Status Card
-                            if pred.num_hands == 2:
-                                metric_hands_box.markdown("🙌 **Mode:** `Dual-Hand (2 Hands Active)`")
-                            elif pred.num_hands == 1:
-                                metric_hands_box.markdown("✋ **Mode:** `Single Hand Active`")
-                            else:
-                                metric_hands_box.markdown("⚪ **Mode:** `Awaiting Hand Presence`")
+                                if pred.is_shivering:
+                                    cv2.putText(
+                                        frame,
+                                        f"SHIVER STABILIZED (Jitter={pred.jitter_score:.1f}px)",
+                                        (15, 30),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.60,
+                                        (240, 160, 255),
+                                        2,
+                                        cv2.LINE_AA
+                                    )
+                                elif pred.is_two_handed:
+                                    cv2.putText(
+                                        frame,
+                                        f"2-HANDS: {pred.phrase_text}",
+                                        (15, 30),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.75,
+                                        (50, 255, 120),
+                                        2,
+                                        cv2.LINE_AA
+                                    )
+                                elif pred.is_phrase:
+                                    cv2.putText(
+                                        frame,
+                                        f"PHRASE: {pred.phrase_text}",
+                                        (15, 30),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.70,
+                                        (60, 240, 120),
+                                        2,
+                                        cv2.LINE_AA
+                                    )
 
-                            disp_sign = pred.display_label if pred.hand_detected else "NO HAND DETECTED"
-                            metric_pred_box.markdown(f"### Predicted Sign: **{disp_sign}**")
-                            metric_prob_box.markdown(
-                                f"**Confidence:** `{pred.confidence_score:.1f}%` ({pred.confidence_level}) | **Margin:** `{pred.margin:.2f}`\n\n"
-                                f"<small style='color: #64748b;'>{pred.status_message}</small>",
-                                unsafe_allow_html=True
-                            )
-                            badge_html = get_motion_badge_html(pred.motion_state, pred.is_uncertain, pred.is_shivering)
-                            metric_motion_box.markdown(f"**Kinetic State:** {badge_html} (Energy: `{pred.kinetic_energy:.3f}`)", unsafe_allow_html=True)
-                            
-                            if pred.is_shivering:
-                                metric_shiver_box.markdown(f"🛡️ **Anti-Shiver Status:** Active (`Jitter: {pred.jitter_score:.2f}px` filtered)")
-                            else:
-                                metric_shiver_box.markdown(f"🛡️ **Anti-Shiver Status:** Monitoring (`Jitter: {pred.jitter_score:.2f}px`)")
+                                # Smooth video rendering on every frame
+                                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                                video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
 
-                            if pred.is_phrase and pred.phrase_text:
-                                icon = "🙌 2-HAND" if pred.is_two_handed else "✨ PHRASE"
-                                metric_phrase_box.markdown(f'<div class="badge-phrase">{icon}: {pred.phrase_text}</div>', unsafe_allow_html=True)
-                            else:
-                                metric_phrase_box.empty()
+                                # Throttled UI status updates to prevent browser WebSocket saturation
+                                if frame_idx % metric_step == 0:
+                                    if pred.num_hands == 2:
+                                        metric_hands_box.markdown("🙌 **Mode:** `Dual-Hand (2 Hands Active)`")
+                                    elif pred.num_hands == 1:
+                                        metric_hands_box.markdown("✋ **Mode:** `Single Hand Active`")
+                                    else:
+                                        metric_hands_box.markdown("⚪ **Mode:** `Awaiting Hand Presence`")
 
-                            buffer_ratio = pred.buffer_fill / max(1, predictor.sequence_length)
-                            metric_buffer_box.markdown(f"**LSTM Temporal Window:** `[{pred.buffer_fill}/{predictor.sequence_length} frames buffered]` ({buffer_ratio:.0%})")
+                                    disp_sign = pred.display_label if pred.hand_detected else "NO HAND DETECTED"
+                                    metric_pred_box.markdown(f"### Predicted Sign: **{disp_sign}**")
+                                    metric_prob_box.markdown(
+                                        f"**Confidence:** `{pred.confidence_score:.1f}%` ({pred.confidence_level}) | **Margin:** `{pred.margin:.2f}`\n\n"
+                                        f"<small style='color: #64748b;'>{pred.status_message}</small>",
+                                        unsafe_allow_html=True
+                                    )
+                                    badge_html = get_motion_badge_html(pred.motion_state, pred.is_uncertain, pred.is_shivering)
+                                    metric_motion_box.markdown(f"**Kinetic State:** {badge_html} (Energy: `{pred.kinetic_energy:.3f}`)", unsafe_allow_html=True)
+                                    
+                                    if pred.is_shivering:
+                                        metric_shiver_box.markdown(f"🛡️ **Anti-Shiver:** Active (`{pred.jitter_score:.1f}px` filtered)")
+                                    else:
+                                        metric_shiver_box.markdown(f"🛡️ **Anti-Shiver:** Monitoring (`{pred.jitter_score:.1f}px`)")
 
-                            # Update Closed Captions HUD
-                            cc_placeholder.markdown(
-                                f'<div class="cc-hud">'
-                                f'<div class="cc-speaker">🎙️ LIVE ASL PREDICTED SIGNS</div>'
-                                f'<div class="cc-content">{disp_cc}</div>'
-                                f'</div>',
-                                unsafe_allow_html=True
-                            )
+                                    if pred.is_phrase and pred.phrase_text:
+                                        icon = "🙌 2-HAND" if pred.is_two_handed else "✨ PHRASE"
+                                        metric_phrase_box.markdown(f'<div class="badge-phrase">{icon}: {pred.phrase_text}</div>', unsafe_allow_html=True)
+                                    else:
+                                        metric_phrase_box.empty()
 
-                            # Convert BGR to RGB for Streamlit rendering
-                            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                                    buffer_ratio = pred.buffer_fill / max(1, predictor.sequence_length)
+                                    metric_buffer_box.markdown(f"**LSTM Window:** `[{pred.buffer_fill}/{predictor.sequence_length}]` ({buffer_ratio:.0%})")
 
-                        cap.release()
+                                    cc_placeholder.markdown(
+                                        f'<div class="cc-hud">'
+                                        f'<div class="cc-speaker">🎙️ LIVE ASL PREDICTED SIGNS</div>'
+                                        f'<div class="cc-content">{disp_cc}</div>'
+                                        f'</div>',
+                                        unsafe_allow_html=True
+                                    )
+
+                                if sleep_time > 0:
+                                    time.sleep(sleep_time)
+
+                        finally:
+                            if cap is not None:
+                                cap.release()
             else:
                 video_placeholder.info("Webcam is idle. Click **'Start Webcam'** above to begin live motion detection and captions.")
 

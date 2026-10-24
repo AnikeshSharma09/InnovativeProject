@@ -150,6 +150,7 @@ class SignPredictor:
         self.hands_detector = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
+            model_complexity=0,
             min_detection_confidence=0.35,
             min_tracking_confidence=0.35
         )
