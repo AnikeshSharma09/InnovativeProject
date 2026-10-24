@@ -196,28 +196,20 @@ class SignPredictor:
     def _apply_anatomical_disambiguation(
         self,
         raw_coords: Optional[List[Tuple[float, float, float]]],
-        probs: np.ndarray
+        probs: np.ndarray,
+        kinetic_energy: float = 0.0
     ) -> Tuple[np.ndarray, Optional[str]]:
         """
-        Disambiguates geometrically confused ASL sign pairs using physiological landmark metrics.
+        Surgically disambiguates geometrically and kinematically confused ASL sign pairs
+        ONLY when the model's top-2 predictions are genuinely competing for that pair.
+        1. 'W' vs '6': Inter-finger spread angle (fan-out vs parallel stack).
+        2. 'U' vs 'V': Index-middle fingertip separation ratio (touching vs spread).
+        3. 'C' vs 'O': Aperture opening (wide opening vs closed circle).
+        4. '0' vs 'O': Aspect ratio (narrow compressed oval vs circular loop).
+        5. 'Z' vs '1': Dynamic motion trajectory vs static upright point.
+        6. 'J' vs 'I': Dynamic swooping curve vs static upright pinky.
         """
         if raw_coords is None or len(raw_coords) < 21:
-            return probs, None
-
-        if "C" not in self.classes or "O" not in self.classes:
-            return probs, None
-
-        c_idx = self.classes.index("C")
-        o_idx = self.classes.index("O")
-
-        sorted_idx = np.argsort(probs)[::-1]
-        top1_idx = int(sorted_idx[0])
-        top1_label = self.classes[top1_idx]
-        top2_idx = int(sorted_idx[1]) if len(sorted_idx) > 1 else top1_idx
-        top2_label = self.classes[top2_idx]
-
-        is_candidate = (top1_label in ("C", "O")) or (top2_label in ("C", "O") and probs[top1_idx] < 0.60)
-        if not is_candidate:
             return probs, None
 
         w = np.array(raw_coords[0])
@@ -226,35 +218,116 @@ class SignPredictor:
         if palm < 1e-4:
             return probs, None
 
+        probs = probs.copy()
+        disambig_notes = []
+
+        sorted_idx = np.argsort(probs)[::-1]
+        top1_idx = int(sorted_idx[0])
+        top1_label = self.classes[top1_idx]
+        top2_idx = int(sorted_idx[1]) if len(sorted_idx) > 1 else top1_idx
+        top2_label = self.classes[top2_idx]
+        top2_set = {top1_label, top2_label}
+
+        # Landmarks
         t_tip = np.array(raw_coords[4])
         i_tip = np.array(raw_coords[8])
+        i_mcp = np.array(raw_coords[5])
         m_tip = np.array(raw_coords[12])
+        r_tip = np.array(raw_coords[16])
+        p_tip = np.array(raw_coords[20])
+        p_mcp = np.array(raw_coords[17])
+
+        # Distances normalized by palm length
+        d_im = np.linalg.norm(i_tip - m_tip) / palm
+        d_mr = np.linalg.norm(m_tip - r_tip) / palm
+        d_tp = np.linalg.norm(t_tip - p_tip) / palm
         d_ti = np.linalg.norm(t_tip - i_tip) / palm
         d_tm = np.linalg.norm(t_tip - m_tip) / palm
-        aperture = float(min(d_ti, d_tm))
 
-        disambig_note = None
+        def _disambiguate_pair(lbl_a: str, lbl_b: str, favor_a: bool, reason: str):
+            nonlocal probs
+            if lbl_a not in self.classes or lbl_b not in self.classes:
+                return
+            idx_a = self.classes.index(lbl_a)
+            idx_b = self.classes.index(lbl_b)
 
-        if aperture >= 0.44:
-            if top1_label in ("O", "0") or probs[c_idx] < probs[o_idx]:
-                probs = probs.copy()
-                orig_o = probs[o_idx]
-                orig_c = probs[c_idx]
-                probs[c_idx] = max(orig_o, orig_c) + 0.10
-                probs[o_idx] = min(orig_o, orig_c) * 0.20
-                probs = probs / np.sum(probs)
-                disambig_note = f"Aperture ({aperture:.2f} >= 0.44) -> 'C'"
-        elif aperture <= 0.25:
-            if top1_label == "C" and probs[o_idx] >= (probs[c_idx] * 0.5):
-                probs = probs.copy()
-                orig_o = probs[o_idx]
-                orig_c = probs[c_idx]
-                probs[o_idx] = max(orig_o, orig_c) + 0.10
-                probs[c_idx] = min(orig_o, orig_c) * 0.20
-                probs = probs / np.sum(probs)
-                disambig_note = f"Aperture ({aperture:.2f} <= 0.25) -> 'O'"
+            # Strictly require BOTH classes to be the top-2 predictions
+            if not (top1_idx in (idx_a, idx_b) and top2_idx in (idx_a, idx_b)):
+                return
 
-        return probs, disambig_note
+            margin = abs(probs[idx_a] - probs[idx_b])
+            if margin > 0.08:
+                # Ensemble is already decisive (margin > 8%), respect the learned boundary
+                return
+
+            if favor_a and probs[idx_a] < probs[idx_b]:
+                p_high = probs[idx_b]
+                p_low = probs[idx_a]
+                probs[idx_a] = p_high
+                probs[idx_b] = p_low
+                disambig_notes.append(f"{reason} -> '{lbl_a}'")
+            elif (not favor_a) and probs[idx_b] < probs[idx_a]:
+                p_high = probs[idx_a]
+                p_low = probs[idx_b]
+                probs[idx_b] = p_high
+                probs[idx_a] = p_low
+                disambig_notes.append(f"{reason} -> '{lbl_b}'")
+
+        # 1. 'W' vs '6' Disambiguation
+        if top2_set == {"W", "6"}:
+            if d_im >= 0.23 and d_mr >= 0.23:
+                _disambiguate_pair("W", "6", favor_a=True, reason=f"Finger spread ({d_im:.2f}, {d_mr:.2f})")
+            elif d_im < 0.20 and d_tp < 0.30:
+                _disambiguate_pair("W", "6", favor_a=False, reason=f"Parallel stack & thumb-pinky ({d_tp:.2f})")
+
+        # 2. 'U' vs 'V' Disambiguation
+        if top2_set == {"U", "V"}:
+            if d_im < 0.17:
+                _disambiguate_pair("U", "V", favor_a=True, reason=f"Touching fingers ({d_im:.2f})")
+            elif d_im >= 0.21:
+                _disambiguate_pair("U", "V", favor_a=False, reason=f"Spread V-shape ({d_im:.2f})")
+
+        # 3. 'U' vs '2' Disambiguation
+        if top2_set == {"U", "2"}:
+            if d_im < 0.17:
+                _disambiguate_pair("U", "2", favor_a=True, reason=f"Touching fingers ({d_im:.2f})")
+            elif d_im >= 0.21:
+                _disambiguate_pair("U", "2", favor_a=False, reason=f"Spread fingers ({d_im:.2f})")
+
+        # 4. 'C' vs 'O' Disambiguation
+        if top2_set == {"C", "O"}:
+            aperture = float(min(d_ti, d_tm))
+            if aperture >= 0.42:
+                _disambiguate_pair("C", "O", favor_a=True, reason=f"Open aperture ({aperture:.2f})")
+            elif aperture <= 0.26:
+                _disambiguate_pair("C", "O", favor_a=False, reason=f"Closed aperture ({aperture:.2f})")
+
+        # 5. '0' vs 'O' Disambiguation
+        if top2_set == {"0", "O"}:
+            loop_width = np.linalg.norm(i_mcp - p_mcp) / palm
+            loop_height = np.linalg.norm(i_tip - w) / palm
+            aspect = loop_width / (loop_height + 1e-6)
+            if aspect < 0.65:
+                _disambiguate_pair("0", "O", favor_a=True, reason=f"Narrow oval zero ({aspect:.2f})")
+            elif aspect >= 0.74:
+                _disambiguate_pair("0", "O", favor_a=False, reason=f"Round circular O ({aspect:.2f})")
+
+        # 6. 'Z' vs '1' Dynamic Motion Gating
+        if top2_set == {"Z", "1"}:
+            if kinetic_energy >= 0.035:
+                _disambiguate_pair("Z", "1", favor_a=True, reason=f"Motion velocity ({kinetic_energy:.3f})")
+            elif 0.0 < kinetic_energy < 0.022:
+                _disambiguate_pair("Z", "1", favor_a=False, reason=f"Static point hold ({kinetic_energy:.3f})")
+
+        # 7. 'J' vs 'I' Dynamic Motion Gating
+        if top2_set == {"J", "I"}:
+            if kinetic_energy >= 0.035:
+                _disambiguate_pair("J", "I", favor_a=True, reason=f"Curve swoop motion ({kinetic_energy:.3f})")
+            elif 0.0 < kinetic_energy < 0.022:
+                _disambiguate_pair("J", "I", favor_a=False, reason=f"Static pinky hold ({kinetic_energy:.3f})")
+
+        note = "; ".join(disambig_notes) if disambig_notes else None
+        return probs, note
 
     def predict_frame(self, bgr_frame: np.ndarray) -> PredictionOutput:
         """
@@ -384,10 +457,10 @@ class SignPredictor:
         else:
             spatial_feat = np.array(motion_vec[:63]).reshape(1, -1)
             probs = self.rf_model.predict_proba(spatial_feat)[0]
-            model_used_name = "Random Forest (Spatial)"
+            model_used_name = "Ensemble Stack (Spatial + Invariants)"
 
         # Anatomical Disambiguation
-        probs, disambig_note = self._apply_anatomical_disambiguation(active_coords, probs)
+        probs, disambig_note = self._apply_anatomical_disambiguation(active_coords, probs, kinetic_energy=kinetic_energy)
         if disambig_note:
             model_used_name += f" [{disambig_note}]"
 
@@ -491,7 +564,7 @@ class SignPredictor:
             draw_styled_landmarks(annotated_image, hand_landmarks)
 
         probs = None
-        model_name = "Random Forest (Spatial)"
+        model_name = "Ensemble Stack (Spatial + Invariants)"
 
         if model_type == "lstm" and self.lstm_model is not None:
             motion_vec = features_63 + [0.0] * 63 + [0.0, 0.0, 0.0]
@@ -514,7 +587,7 @@ class SignPredictor:
         if probs is None:
             return self._empty_response("No valid model available for inference."), annotated_image
 
-        probs, disambig_note = self._apply_anatomical_disambiguation(raw_coords, probs)
+        probs, disambig_note = self._apply_anatomical_disambiguation(raw_coords, probs, kinetic_energy=0.0)
         if disambig_note:
             model_name += f" [{disambig_note}]"
 

@@ -100,12 +100,15 @@ def save_lstm_checkpoint(
 
 def load_lstm_checkpoint(
     filepath: str = "models/sign_lstm.pth",
-    device: str = "cpu"
+    checkpoint_path: Optional[str] = None,
+    device: str = "cpu",
+    **kwargs
 ) -> Tuple[MotionSignLSTM, dict]:
     """Loads a saved LSTM model checkpoint and instantiates the architecture."""
-    path = Path(filepath)
+    path_str = checkpoint_path or filepath
+    path = Path(path_str)
     if not path.exists():
-        raise FileNotFoundError(f"LSTM model checkpoint not found at: {filepath}")
+        raise FileNotFoundError(f"LSTM model checkpoint not found at: {path_str}")
 
     payload = torch.load(str(path), map_location=device)
     model = MotionSignLSTM(
