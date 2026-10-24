@@ -691,7 +691,6 @@ def main():
                 matched_video_paths = []
                 if wlasl_json_path.exists():
                     try:
-                        import json
                         with open(wlasl_json_path, "r", encoding="utf-8") as f:
                             wlasl_data = json.load(f)
                         for item in wlasl_data:

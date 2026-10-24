@@ -10,6 +10,7 @@ Provides:
 """
 from pathlib import Path
 from typing import Dict, List, Optional
+import json
 import cv2
 import numpy as np
 from PIL import Image
@@ -679,7 +680,6 @@ def resolve_wlasl_sample_video(word: str) -> Optional[Path]:
         return None
 
     try:
-        import json
         with open(j_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         for entry in data:
