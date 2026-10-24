@@ -36,7 +36,10 @@ from utils.labels import format_label_for_display
 from utils.speech import speak_text
 from utils.sentence_engine import EnterpriseSentenceEngine
 from utils.prediction_logger import PredictionLogger
-from app.tutorial_view import render_tutorial_tab
+try:
+    from tutorial_view import render_tutorial_tab
+except (ModuleNotFoundError, ImportError):
+    from app.tutorial_view import render_tutorial_tab
 import torch
 
 # Page Configuration
