@@ -12,7 +12,11 @@ Features:
 - Offline Text-to-Speech (pyttsx3)
 """
 import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["GLOG_minloglevel"] = "3"
 import sys
+import warnings
+warnings.filterwarnings("ignore")
 import time
 import json
 from pathlib import Path
@@ -288,12 +292,19 @@ def main():
             value=True,
             help="Clamps false kinetic velocity spikes caused by hand tremors, keeping static signs rock-solid."
         )
+        enable_macros = st.checkbox(
+            "Enable Single-Hand Workplace Macros",
+            value=False,
+            help="When enabled, gestures like thumbs-up trigger instant meeting phrases ('Approved / Looks Good!'). Keep OFF for letter-by-letter spelling."
+        )
 
         if predictor is not None:
             predictor.enable_stabilization = enable_stabilization
             predictor.landmark_stabilizer.min_cutoff = min_cutoff
             predictor.landmark_stabilizer.beta = beta_val
             predictor.tremor_deadband = enable_deadband
+            if hasattr(predictor, "phrase_recognizer"):
+                predictor.phrase_recognizer.enable_single_hand_macros = enable_macros
 
         st.markdown("---")
         st.subheader("📁 Prediction Storage File")

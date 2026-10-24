@@ -27,8 +27,9 @@ class EnterprisePhraseRecognizer:
     using 3D spatial geometry, inter-hand distances, and motion buffers.
     """
 
-    def __init__(self, history_len: int = 20):
+    def __init__(self, history_len: int = 20, enable_single_hand_macros: bool = False):
         self.history_len = history_len
+        self.enable_single_hand_macros = enable_single_hand_macros
         self.trajectory_buffer: deque = deque(maxlen=history_len)
         self.raw_coords_buffer: deque = deque(maxlen=history_len)
         self.last_emitted_phrase: Optional[str] = None
@@ -165,8 +166,11 @@ class EnterprisePhraseRecognizer:
                 )
 
         # ---------------------------------------------------------------------
-        # SECTION B: SINGLE-HAND SIGN RECOGNITION
+        # SECTION B: SINGLE-HAND SIGN RECOGNITION (OPT-IN WORKPLACE MACROS)
         # ---------------------------------------------------------------------
+        if not self.enable_single_hand_macros:
+            return None
+
         primary_coords = coords or right_coords or left_coords
         if primary_coords is None or len(primary_coords) < 21:
             return None

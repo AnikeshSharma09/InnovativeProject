@@ -11,7 +11,11 @@ Supports:
 3. Adaptive 1€ Anti-Tremor & Shiver Stabilization across both hands.
 """
 import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["GLOG_minloglevel"] = "3"
 import sys
+import warnings
+warnings.filterwarnings("ignore")
 import time
 from typing import Optional, List, Tuple, Dict, Any, Union
 from dataclasses import dataclass
@@ -122,7 +126,7 @@ class SignPredictor:
         self.prob_stabilizer = ProbabilityStabilizer(alpha=0.65)
 
         # Whole-Sentence & Dual-Hand Recognition Engine
-        self.phrase_recognizer = EnterprisePhraseRecognizer()
+        self.phrase_recognizer = EnterprisePhraseRecognizer(enable_single_hand_macros=False)
 
         # Temporal Sequence Window for LSTM (stores last N frames of 129 features)
         self.sequence_buffer: deque = deque(maxlen=sequence_length)
@@ -164,12 +168,13 @@ class SignPredictor:
         # Load LSTM model if exists
         if self.lstm_model_path.exists():
             try:
-                self.lstm_model = load_lstm_checkpoint(
+                loaded = load_lstm_checkpoint(
                     checkpoint_path=str(self.lstm_model_path),
                     input_size=TOTAL_MOTION_FEATURES,
                     num_classes=len(self.classes),
                     device=self.device
                 )
+                self.lstm_model = loaded[0] if isinstance(loaded, tuple) else loaded
                 print(f"[+] SignPredictor: Loaded Deep Learning LSTM model from {self.lstm_model_path}")
             except Exception as e:
                 print(f"[!] Warning: Could not load LSTM model: {e}")
@@ -197,7 +202,7 @@ class SignPredictor:
                 f"Neither LSTM checkpoint '{self.lstm_model_path}' nor RF model '{self.rf_model_path}' found."
             )
 
-    def predict_wlasl_word(self) -> Optional[Tuple[str, float]]:
+    def predict_wlasl_word(self, min_confidence: float = 0.40) -> Optional[Tuple[str, float]]:
         """
         Evaluates the rolling temporal motion window against the WLASL Word-Level Model.
         Returns: (predicted_word, confidence_probability) if confident, or None.
@@ -226,7 +231,7 @@ class SignPredictor:
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
 
-            if top_prob >= 0.50:
+            if top_prob >= min_confidence:
                 word_label = self.wlasl_classes[top_idx].upper()
                 return word_label, top_prob
         except Exception:
@@ -484,13 +489,12 @@ class SignPredictor:
 
         # Step 3.5: Evaluate Word-Level WLASL Signs during motion or when in word/hybrid mode
         if self.wlasl_model is not None and (self.engine_mode in ("wlasl", "hybrid") or (self.engine_mode == "auto" and kinetic_energy > 0.045)):
-            wlasl_res = self.predict_wlasl_word()
-            min_thresh = 0.45 if self.engine_mode == "wlasl" else 0.55
+            min_thresh = 0.42 if self.engine_mode == "wlasl" else 0.55
+            wlasl_res = self.predict_wlasl_word(min_confidence=min_thresh)
             if wlasl_res is not None:
                 word_label, word_prob = wlasl_res
-                if word_prob >= min_thresh:
-                    self.prediction_history.append(word_label)
-                    return PredictionOutput(
+                self.prediction_history.append(word_label)
+                return PredictionOutput(
                         hand_detected=True,
                         predicted_label=word_label,
                         display_label=word_label,
