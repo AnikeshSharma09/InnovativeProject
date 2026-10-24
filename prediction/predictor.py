@@ -13,7 +13,7 @@ Supports:
 import os
 import sys
 import time
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any, Union
 from dataclasses import dataclass
 from collections import deque, Counter
 from pathlib import Path
@@ -101,6 +101,8 @@ class SignPredictor:
         self.lstm_model_path = Path(lstm_model_path)
         self.encoder_path = Path(encoder_path)
         self.rf_model_path = Path(rf_model_path)
+        self.wlasl_model_path = Path("models/wlasl_word_model.pkl")
+        self.wlasl_encoder_path = Path("models/wlasl_label_encoder.pkl")
         self.sequence_length = sequence_length
         self.min_confidence = min_confidence
         self.min_margin = min_margin
@@ -134,6 +136,9 @@ class SignPredictor:
         self.rf_model = None
         self.label_encoder = None
         self.classes: List[str] = []
+        self.wlasl_model = None
+        self.wlasl_encoder = None
+        self.wlasl_classes: List[str] = []
         self._load_models()
 
         # Initialize MediaPipe Hands supporting up to 2 hands (Dual Hand / Bimanual)
@@ -177,10 +182,57 @@ class SignPredictor:
             except Exception as e:
                 print(f"[!] Warning: Could not load RF model: {e}")
 
+        # Load WLASL Word Model if exists
+        if self.wlasl_model_path.exists() and self.wlasl_encoder_path.exists():
+            try:
+                self.wlasl_model = joblib.load(self.wlasl_model_path)
+                self.wlasl_encoder = joblib.load(self.wlasl_encoder_path)
+                self.wlasl_classes = [str(c) for c in self.wlasl_encoder.classes_]
+                print(f"[+] SignPredictor: Loaded WLASL Word-Level Model with {len(self.wlasl_classes)} vocabulary signs")
+            except Exception as e:
+                print(f"[!] Warning: Could not load WLASL Word Model: {e}")
+
         if self.lstm_model is None and self.rf_model is None:
             raise FileNotFoundError(
                 f"Neither LSTM checkpoint '{self.lstm_model_path}' nor RF model '{self.rf_model_path}' found."
             )
+
+    def predict_wlasl_word(self) -> Optional[Tuple[str, float]]:
+        """
+        Evaluates the rolling temporal motion window against the WLASL Word-Level Model.
+        Returns: (predicted_word, confidence_probability) if confident, or None.
+        """
+        if self.wlasl_model is None or len(self.sequence_buffer) < 10:
+            return None
+
+        frames = list(self.sequence_buffer)
+        while len(frames) < self.sequence_length:
+            frames.insert(0, frames[0])
+
+        seq_array = np.array(frames, dtype=np.float32)  # (20, 129)
+
+        # 258-dim summary vector: initial shape (63) + mid shape (63) + final shape (63) + mean velocity (63) + traj (3) + max vel (3)
+        init_shape = seq_array[0, :63]
+        mid_shape = seq_array[len(frames) // 2, :63]
+        final_shape = seq_array[-1, :63]
+        mean_vel = np.mean(seq_array[:, 63:126], axis=0)
+        traj_delta = seq_array[-1, 126:129] - seq_array[0, 126:129]
+        max_vel = np.max(np.abs(seq_array[:, 63:66]), axis=0)
+
+        feat_258 = np.hstack([init_shape, mid_shape, final_shape, mean_vel, traj_delta, max_vel]).reshape(1, -1)
+
+        try:
+            probs = self.wlasl_model.predict_proba(feat_258)[0]
+            top_idx = int(np.argmax(probs))
+            top_prob = float(probs[top_idx])
+
+            if top_prob >= 0.50:
+                word_label = self.wlasl_classes[top_idx].upper()
+                return word_label, top_prob
+        except Exception:
+            pass
+
+        return None
 
     def reset_buffer(self) -> None:
         """Clears sequence buffer and prediction history."""
@@ -430,6 +482,71 @@ class SignPredictor:
         else:
             motion_state = "STATIC HOLD"
 
+        # Step 3.5: Evaluate Word-Level WLASL Signs during motion or when in word/hybrid mode
+        if self.wlasl_model is not None and (self.engine_mode in ("wlasl", "hybrid") or (self.engine_mode == "auto" and kinetic_energy > 0.045)):
+            wlasl_res = self.predict_wlasl_word()
+            min_thresh = 0.45 if self.engine_mode == "wlasl" else 0.55
+            if wlasl_res is not None:
+                word_label, word_prob = wlasl_res
+                if word_prob >= min_thresh:
+                    self.prediction_history.append(word_label)
+                    return PredictionOutput(
+                        hand_detected=True,
+                        predicted_label=word_label,
+                        display_label=word_label,
+                        confidence_level="HIGH" if word_prob >= 0.70 else "MEDIUM",
+                        confidence_score=round(word_prob * 100.0, 1),
+                        raw_probability=round(word_prob, 4),
+                        margin=0.35,
+                        kinetic_energy=round(kinetic_energy, 4),
+                        motion_state="WHOLE WORD GESTURE",
+                        buffer_fill=len(self.sequence_buffer),
+                        is_uncertain=False,
+                        is_stable=True,
+                        stable_label=word_label,
+                        hand_landmarks_proto=primary_proto,
+                        status_message=f"Recognized Whole-Word Sign: '{word_label}' via WLASL Model",
+                        is_shivering=is_shivering,
+                        jitter_score=round(jitter_score, 6),
+                        is_phrase=True,
+                        phrase_text=word_label,
+                        stabilized_coords=active_coords,
+                        num_hands=dual_res.num_hands,
+                        is_two_handed=dual_res.is_bimanual,
+                        left_hand_proto=dual_res.left_hand_proto,
+                        right_hand_proto=dual_res.right_hand_proto,
+                        dual_result=dual_res
+                    )
+            elif self.engine_mode == "wlasl":
+                # In explicit WLASL mode, wait for word gesture completion instead of falling back to letters
+                return PredictionOutput(
+                    hand_detected=True,
+                    predicted_label="...",
+                    display_label="Performing Word Sign...",
+                    confidence_level="MEDIUM",
+                    confidence_score=50.0,
+                    raw_probability=0.5,
+                    margin=0.1,
+                    kinetic_energy=round(kinetic_energy, 4),
+                    motion_state="ACCUMULATING MOTION" if len(self.sequence_buffer) < 10 else "ANALYZING WORD SIGN",
+                    buffer_fill=len(self.sequence_buffer),
+                    is_uncertain=True,
+                    is_stable=False,
+                    stable_label=None,
+                    hand_landmarks_proto=primary_proto,
+                    status_message=f"Capturing motion trajectory ({len(self.sequence_buffer)}/20 frames) for WLASL vocabulary...",
+                    is_shivering=is_shivering,
+                    jitter_score=round(jitter_score, 6),
+                    is_phrase=True,
+                    phrase_text=None,
+                    stabilized_coords=active_coords,
+                    num_hands=dual_res.num_hands,
+                    is_two_handed=dual_res.is_bimanual,
+                    left_hand_proto=dual_res.left_hand_proto,
+                    right_hand_proto=dual_res.right_hand_proto,
+                    dual_result=dual_res
+                )
+
         # Step 4: Model Inference for Primary Hand (39 Base Classes)
         use_lstm = False
         if self.engine_mode == "lstm" and self.lstm_model is not None:
@@ -617,6 +734,166 @@ class SignPredictor:
             status_message=f"Detected via '{stage_name}' stage, classified by {model_name}."
         )
         return output, annotated_image
+
+    def predict_video(
+        self,
+        video_path: Union[str, Path],
+        frame_start: int = 1,
+        frame_end: int = -1
+    ) -> Dict[str, Any]:
+        """
+        Processes an MP4 video clip, extracts uniform landmark sequences across frames,
+        and evaluates using the WLASL Word-Level Model and spatial-temporal features.
+        """
+        v_path = Path(video_path)
+        if not v_path.exists() or v_path.stat().st_size < 1000:
+            return {
+                "success": False,
+                "error_message": f"Video file not found or invalid: {video_path}",
+                "predicted_word": None,
+                "confidence_score": 0.0,
+                "top3_candidates": [],
+                "annotated_keyframe": None,
+                "num_frames_processed": 0
+            }
+
+        cap = cv2.VideoCapture(str(v_path))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames < 3:
+            cap.release()
+            return {
+                "success": False,
+                "error_message": f"Video has too few frames ({total_frames}).",
+                "predicted_word": None,
+                "confidence_score": 0.0,
+                "top3_candidates": [],
+                "annotated_keyframe": None,
+                "num_frames_processed": 0
+            }
+
+        start = max(0, frame_start - 1)
+        end = total_frames - 1
+        if frame_end > 0 and frame_end > start:
+            end = min(total_frames - 1, frame_end)
+
+        sample_indices = np.linspace(start, end, self.sequence_length).astype(int)
+        target_set = set(sample_indices)
+        mid_target = sample_indices[len(sample_indices) // 2]
+
+        sampled_dict = {}
+        keyframe_bgr = None
+        keyframe_proto = None
+        curr_frame = 0
+
+        while cap.isOpened() and curr_frame <= end:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if curr_frame in target_set:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                res = self.hands_detector.process(rgb)
+                if res.multi_hand_landmarks:
+                    primary = res.multi_hand_landmarks[0]
+                    pts = [(lm.x, lm.y, lm.z) for lm in primary.landmark]
+                    sampled_dict[curr_frame] = pts
+                    if curr_frame == mid_target or keyframe_bgr is None:
+                        keyframe_bgr = frame.copy()
+                        keyframe_proto = primary
+                else:
+                    sampled_dict[curr_frame] = None
+                    if keyframe_bgr is None:
+                        keyframe_bgr = frame.copy()
+            curr_frame += 1
+
+        cap.release()
+
+        # Reconstruct in order
+        last_valid = None
+        ordered_coords = []
+        valid_count = 0
+
+        for idx in sample_indices:
+            pts = sampled_dict.get(idx)
+            if pts is not None:
+                last_valid = pts
+                valid_count += 1
+                ordered_coords.append(pts)
+            elif last_valid is not None:
+                ordered_coords.append(last_valid)
+            else:
+                ordered_coords.append(None)
+
+        if valid_count < 3:
+            return {
+                "success": False,
+                "error_message": "Could not detect clear hand landmarks in enough video frames.",
+                "predicted_word": None,
+                "confidence_score": 0.0,
+                "top3_candidates": [],
+                "annotated_keyframe": keyframe_bgr,
+                "num_frames_processed": total_frames
+            }
+
+        first_valid = next(p for p in ordered_coords if p is not None)
+        for i in range(len(ordered_coords)):
+            if ordered_coords[i] is None:
+                ordered_coords[i] = first_valid
+
+        # Compute 129-dim motion sequence
+        seq_vectors = []
+        prev_pts = None
+        for pts in ordered_coords:
+            m_vec, _ = extract_motion_features(pts, prev_pts)
+            seq_vectors.append(m_vec)
+            prev_pts = pts
+
+        seq_array = np.array(seq_vectors, dtype=np.float32)
+
+        # 258-dim summary vector
+        init_shape = seq_array[0, :63]
+        mid_shape = seq_array[len(ordered_coords) // 2, :63]
+        final_shape = seq_array[-1, :63]
+        mean_vel = np.mean(seq_array[:, 63:126], axis=0)
+        traj_delta = seq_array[-1, 126:129] - seq_array[0, 126:129]
+        max_vel = np.max(np.abs(seq_array[:, 63:66]), axis=0)
+
+        feat_258 = np.hstack([init_shape, mid_shape, final_shape, mean_vel, traj_delta, max_vel]).reshape(1, -1)
+
+        if self.wlasl_model is None:
+            return {
+                "success": False,
+                "error_message": "WLASL Word Model is not loaded.",
+                "predicted_word": None,
+                "confidence_score": 0.0,
+                "top3_candidates": [],
+                "annotated_keyframe": keyframe_bgr,
+                "num_frames_processed": total_frames
+            }
+
+        probs = self.wlasl_model.predict_proba(feat_258)[0]
+        sorted_indices = np.argsort(probs)[::-1]
+        top1_idx = int(sorted_indices[0])
+        top1_prob = float(probs[top1_idx])
+        pred_word = self.wlasl_classes[top1_idx].upper()
+
+        top3 = []
+        for idx in sorted_indices[:3]:
+            top3.append((self.wlasl_classes[idx].upper(), float(probs[idx])))
+
+        # Annotate keyframe if available
+        annotated_frame = keyframe_bgr.copy() if keyframe_bgr is not None else None
+        if annotated_frame is not None and keyframe_proto is not None:
+            draw_styled_landmarks(annotated_frame, keyframe_proto)
+
+        return {
+            "success": True,
+            "error_message": "",
+            "predicted_word": pred_word,
+            "confidence_score": round(top1_prob * 100.0, 1),
+            "top3_candidates": top3,
+            "annotated_keyframe": annotated_frame,
+            "num_frames_processed": total_frames
+        }
 
     def _empty_response(
         self,

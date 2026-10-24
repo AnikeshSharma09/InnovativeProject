@@ -451,6 +451,251 @@ WORKPLACE_TUTORIAL_DATA: Dict[str, Dict] = {
 
 
 # =============================================================================
+# WLASL WORD-LEVEL VOCABULARY SIGNS (NEW DATASET)
+# =============================================================================
+
+WLASL_TUTORIAL_DATA: Dict[str, Dict] = {
+    "ACCIDENT": {
+        "title": "Sign: 'Accident'",
+        "category": "WLASL Word",
+        "description": "Start with both hands open in loose 5-handshapes apart in front of you. Bring them inward abruptly so knuckles or palms clash or crash together.",
+        "fingers": "Both hands open, palms facing each other, moving rapidly to collision",
+        "motion": "Abrupt inward collision stroke",
+        "tip": "Make the collision decisive; the AI looks for sudden deceleration at the impact point."
+    },
+    "BED": {
+        "title": "Sign: 'Bed'",
+        "category": "WLASL Word",
+        "description": "Place your flat dominant open palm against your cheek while tilting your head sideways, mimicking resting on a pillow.",
+        "fingers": "Flat open palm resting against cheek/ear",
+        "motion": "Tilting head to palm and holding steady",
+        "tip": "Hold the flat hand steady against the cheek for 0.5s."
+    },
+    "BEFORE": {
+        "title": "Sign: 'Before'",
+        "category": "WLASL Word",
+        "description": "Hold flat open hand in front of your shoulder with palm facing inward/back. Move hand backward over shoulder.",
+        "fingers": "Flat B-hand or open 5-hand, palm facing toward body",
+        "motion": "Backward stroke towards/over the shoulder",
+        "tip": "Move the hand backwards in a clear, continuous gesture."
+    },
+    "CALL": {
+        "title": "Sign: 'Call'",
+        "category": "WLASL Word",
+        "description": "Make a 'Y' or 'C' handshape near ear and mouth like holding a phone receiver, or tap index finger outward.",
+        "fingers": "Thumb near ear, pinky near mouth (Y-shape phone)",
+        "motion": "Tapping or holding near ear",
+        "tip": "Keep the phone receiver handshape distinct from single letters."
+    },
+    "CANDY": {
+        "title": "Sign: 'Candy'",
+        "category": "WLASL Word",
+        "description": "Press the tip of your extended index finger against the side of your cheek and twist your wrist back and forth.",
+        "fingers": "Index finger extended, other fingers curled into fist",
+        "motion": "Twisting index fingertip on cheek twice",
+        "tip": "The twisting rotational motion is key for this sign."
+    },
+    "CHANGE": {
+        "title": "Sign: 'Change'",
+        "category": "WLASL Word",
+        "description": "Both hands in curled X-fists touching wrists. Twist wrists so top hand and bottom hand reverse positions.",
+        "fingers": "Both hands in X-fists crossed at wrists",
+        "motion": "Twisting wrists to invert vertical positions",
+        "tip": "A crisp rotational twist signals 'change' or 'switch'."
+    },
+    "COLD": {
+        "title": "Sign: 'Cold'",
+        "category": "WLASL Word",
+        "description": "Hold both hands in fists near chest level with elbows bent, shivering/shaking side to side as if freezing.",
+        "fingers": "Both fists clenched near chest",
+        "motion": "Rapid shivering oscillation back and forth",
+        "tip": "Oscillate both fists together with short, rapid tremors."
+    },
+    "COMPUTER": {
+        "title": "Sign: 'Computer'",
+        "category": "WLASL Word",
+        "description": "Form a 'C' handshape with dominant hand. Sweep it upward along the forearm of your non-dominant arm from wrist to elbow.",
+        "fingers": "Dominant hand 'C' shape, non-dominant forearm extended horizontally",
+        "motion": "Upward sliding sweep along forearm",
+        "tip": "Keep the 'C' curvature distinct as you glide across the arm."
+    },
+    "COOL": {
+        "title": "Sign: 'Cool'",
+        "category": "WLASL Word",
+        "description": "Hold both open flat hands near face or chest and fan fingers gently inward towards yourself.",
+        "fingers": "Open 5-hands fanning gently",
+        "motion": "Inward wave towards chest/face",
+        "tip": "Gentle fluttering of fingers towards chest."
+    },
+    "COUSIN": {
+        "title": "Sign: 'Cousin'",
+        "category": "WLASL Word",
+        "description": "Hold a 'C' handshape near the side of head (temple for male, jawline for female) and shake gently side to side.",
+        "fingers": "Open 'C' handshape",
+        "motion": "Gentle shaking/twisting at cheek/temple height",
+        "tip": "Maintain the 'C' curvature while shaking."
+    },
+    "DRINK": {
+        "title": "Sign: 'Drink'",
+        "category": "WLASL Word",
+        "description": "Form a 'C' handshape as if grasping a small glass or cup. Bring hand to mouth and tip wrist backward.",
+        "fingers": "Curled 'C' shape holding imaginary cup",
+        "motion": "Tilting upward toward mouth",
+        "tip": "Lift hand smoothly to mouth and tilt thumb backwards."
+    },
+    "GO": {
+        "title": "Sign: 'Go'",
+        "category": "WLASL Word",
+        "description": "Both index fingers pointing upward or forward, rotating in an arc away from your body in the direction of travel.",
+        "fingers": "Index fingers extended (1-handshape)",
+        "motion": "Forward sweeping arc away from body",
+        "tip": "Both fingers point and flick forward together."
+    },
+    "HELP": {
+        "title": "Sign: 'Help'",
+        "category": "WLASL Word",
+        "description": "Place your dominant hand in a thumbs-up fist (A-shape) on top of your non-dominant open flat palm. Lift both hands together.",
+        "fingers": "Dominant: Thumbs-up fist | Non-dominant: Flat palm facing up",
+        "motion": "Upward lifting motion supporting the fist",
+        "tip": "Keep non-dominant palm flat as an elevator supporting the fist."
+    },
+    "LATER": {
+        "title": "Sign: 'Later'",
+        "category": "WLASL Word",
+        "description": "Make an 'L' handshape with dominant hand. Rest thumb tip on non-dominant palm, and rotate index finger forward like a clock hand.",
+        "fingers": "Dominant 'L' handshape, index finger pointing up then down",
+        "motion": "Forward clockwise rotational stroke",
+        "tip": "Rotate the index finger downward smoothly like the hand of a clock."
+    },
+    "MAN": {
+        "title": "Sign: 'Man'",
+        "category": "WLASL Word",
+        "description": "Touch the thumb of your open 5-hand to the center of your forehead, then bring it down to touch the center of your chest.",
+        "fingers": "Open 5-hand with thumb extended",
+        "motion": "Forehead to chest downward path",
+        "tip": "Two-point contact: Forehead first, then upper chest."
+    },
+    "NO": {
+        "title": "Sign: 'No'",
+        "category": "WLASL Word",
+        "description": "Extend index and middle finger together. Snap their tips down firmly onto the thumb pad like a bird's beak closing.",
+        "fingers": "Index and middle fingers together snapping against thumb",
+        "motion": "Rapid downward snap closing the gap",
+        "tip": "Make the snap crisp and distinct."
+    },
+    "PLAY": {
+        "title": "Sign: 'Play'",
+        "category": "WLASL Word",
+        "description": "Make 'Y' handshapes with both hands (thumbs and pinkies extended, other fingers curled). Rotate wrists back and forth.",
+        "fingers": "Both hands in 'Y' shape",
+        "motion": "Synchronous twisting rotation of both wrists",
+        "tip": "Keep thumbs and pinkies flared out wide while twisting."
+    },
+    "SHIRT": {
+        "title": "Sign: 'Shirt'",
+        "category": "WLASL Word",
+        "description": "Pinch the fabric of your shirt near your collarbone or upper chest between thumb and index finger, tugging slightly.",
+        "fingers": "Pinch gesture between thumb and index tip",
+        "motion": "Tugging outward twice near collarbone",
+        "tip": "Pinch near the shoulder and tug forward gently."
+    },
+    "SHORT": {
+        "title": "Sign: 'Short'",
+        "category": "WLASL Word",
+        "description": "Hold flat palm facing downward towards floor. Move hand down in steps or hold at low elevation indicating height.",
+        "fingers": "Flat palm facing downward horizontally",
+        "motion": "Downward patting motion",
+        "tip": "Keep palm flat and parallel to the desk or floor."
+    },
+    "TALL": {
+        "title": "Sign: 'Tall'",
+        "category": "WLASL Word",
+        "description": "Hold flat non-dominant palm facing sideways. Dominant index finger moves straight up along the palm past the fingertips.",
+        "fingers": "Dominant index pointing up, sliding past flat non-dominant hand",
+        "motion": "Straight upward vertical stroke",
+        "tip": "Clear upward vertical elevation above shoulder height."
+    },
+    "THIN": {
+        "title": "Sign: 'Thin'",
+        "category": "WLASL Word",
+        "description": "Hold both hands in 'I' shapes (pinkies extended straight up, other fingers curled). Hold hands close together and pull apart vertically.",
+        "fingers": "Both pinkies extended upright ('I' shape)",
+        "motion": "Vertical separation of pinky fingertips",
+        "tip": "Only pinky fingers extended, highlighting narrowness."
+    },
+    "WALK": {
+        "title": "Sign: 'Walk'",
+        "category": "WLASL Word",
+        "description": "Hold flat open hands facing downward. Alternately step hands forward and back like walking feet, or use index and middle fingers as legs.",
+        "fingers": "Flat hands facing down or two fingers as legs",
+        "motion": "Alternating forward/backward walking strokes",
+        "tip": "Alternate strokes continuously for 1 second."
+    },
+    "WHAT": {
+        "title": "Sign: 'What'",
+        "category": "WLASL Word",
+        "description": "Hold both open flat hands in front of body, palms facing up, fingers slightly curved. Shake hands side to side with puzzled expression.",
+        "fingers": "Both palms open facing upward",
+        "motion": "Shaking side to side smoothly",
+        "tip": "Keep palms open facing upward toward the ceiling."
+    },
+    "WHO": {
+        "title": "Sign: 'Who'",
+        "category": "WLASL Word",
+        "description": "Place thumb tip of 'L' handshape against your chin. Curl and uncurl index finger repeatedly like a questioning hook.",
+        "fingers": "Thumb on chin, index finger curling into hook",
+        "motion": "Hooking index finger up and down twice",
+        "tip": "Rest thumb on chin and curl only the index finger."
+    },
+    "WORK": {
+        "title": "Sign: 'Work'",
+        "category": "WLASL Word",
+        "description": "Both hands in closed fists with palms facing down. Dominant fist taps the wrist or back of the non-dominant fist twice.",
+        "fingers": "Both hands in closed fists, palms down",
+        "motion": "Tapping wrist of non-dominant fist twice",
+        "tip": "Tap dominant fist firmly on the base wrist."
+    },
+    "YES": {
+        "title": "Sign: 'Yes'",
+        "category": "WLASL Word",
+        "description": "Make a closed fist (S-handshape). Bend wrist forward and back so the fist nods up and down like a head nodding 'yes'.",
+        "fingers": "Closed fist with thumb folded over fingers",
+        "motion": "Nodding wrist forward and backward twice",
+        "tip": "Nod the entire fist at the wrist joint in a clear bobbing motion."
+    }
+}
+
+_WLASL_VIDEO_CACHE: Dict[str, Path] = {}
+
+def resolve_wlasl_sample_video(word: str) -> Optional[Path]:
+    """Finds a verified local video clip for the given WLASL vocabulary word."""
+    w = word.lower()
+    if w in _WLASL_VIDEO_CACHE:
+        return _WLASL_VIDEO_CACHE[w]
+
+    j_path = Path("archive/wlasl/WLASL_v0.3.json")
+    v_dir = Path("archive/wlasl/videos")
+    if not j_path.exists() or not v_dir.exists():
+        return None
+
+    try:
+        import json
+        with open(j_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for entry in data:
+            if entry["gloss"].lower() == w:
+                for inst in entry["instances"]:
+                    vid_id = inst["video_id"]
+                    vp = v_dir / f"{vid_id}.mp4"
+                    if vp.exists() and vp.stat().st_size > 1000:
+                        _WLASL_VIDEO_CACHE[w] = vp
+                        return vp
+    except Exception:
+        pass
+    return None
+
+
+# =============================================================================
 # IMAGE PATH RESOLVER
 # =============================================================================
 
@@ -490,6 +735,7 @@ def render_tutorial_tab():
         "Choose Tutorial Module:",
         options=[
             "🔤 Alphabet & Numbers Visual Guide (39 Signs)",
+            "🎬 WLASL Word Signs Reference (New Dataset - 26 Words)",
             "👐 Two-Hand (Bimanual) Signs Masterclass (7 Words)",
             "💼 Workplace & Meeting Macro Signs",
             "💡 Pro Tips for 100% Recognition Accuracy"
@@ -571,7 +817,64 @@ def render_tutorial_tab():
                     st.button(f"'{k}'", key=f"btn_{k}")
 
     # =========================================================================
-    # MODULE 2: TWO-HAND (BIMANUAL) SIGNS MASTERCLASS
+    # MODULE 2: WLASL WORD-LEVEL SIGNS (NEW DATASET)
+    # =========================================================================
+    elif tutorial_section == "🎬 WLASL Word Signs Reference (New Dataset - 26 Words)":
+        st.markdown("""
+        ### 🎬 WLASL Word-Level Sign Vocabulary (New Dataset)
+        The system has been trained on real video clips from the **WLASL (Word-Level American Sign Language)** dataset.
+        Explore the 26 high-frequency vocabulary signs below, complete with anatomical instructions, kinematic motion paths, and video demonstrations:
+        """)
+
+        w_col_sel, w_col_info = st.columns([1, 2])
+        wlasl_keys = sorted(list(WLASL_TUTORIAL_DATA.keys()))
+
+        with w_col_sel:
+            selected_wlasl = st.selectbox(
+                "Select Vocabulary Sign Word:",
+                options=wlasl_keys,
+                index=0,
+                format_func=lambda k: f"⭐ {k} ({WLASL_TUTORIAL_DATA[k]['title']})"
+            )
+            v_sample = resolve_wlasl_sample_video(selected_wlasl)
+            if v_sample and v_sample.exists():
+                st.markdown("#### 🎥 Reference Video Clip")
+                st.video(str(v_sample))
+                st.caption(f"Real signer sample from `archive/wlasl/videos/{v_sample.name}`")
+            else:
+                st.markdown("""
+                <div style="background-color: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 8px; padding: 16px; text-align: center;">
+                    <div style="font-size: 2.2rem;">🎬</div>
+                    <span style="font-size: 0.88rem; color: #64748B;">Video sample available in WLASL archive</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with w_col_info:
+            w_info = WLASL_TUTORIAL_DATA[selected_wlasl]
+            st.markdown(f"### {w_info['title']}")
+            st.markdown(f"**How to Perform:** {w_info['description']}")
+            st.markdown(f"**🖐️ Handshape & Finger Configuration:** `{w_info['fingers']}`")
+            st.markdown(f"**🔄 Kinematic Motion Stroke:** `{w_info['motion']}`")
+            st.info(f"💡 **AI Recognition Tip:** {w_info['tip']}")
+
+            st.markdown("""
+            <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 12px; margin-top: 10px;">
+                <span style="color: #1D4ED8; font-weight: 600;">⚡ Real-Time Engine Integration:</span>
+                <span style="color: #374151; font-size: 0.9rem;">
+                    When signed in front of your camera in <b>WLASL Word-Level Mode</b> or <b>Hybrid Mode</b>, the AI automatically extracts 20 temporal motion frames, verifies the velocity vector, and logs the recognized word directly to <code>data/predicted_signs.txt</code>.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("#### 📚 Quick Vocabulary Index (26 Signs)")
+        v_cols = st.columns(6)
+        for i, word in enumerate(wlasl_keys):
+            with v_cols[i % 6]:
+                st.markdown(f"`{word}`")
+
+    # =========================================================================
+    # MODULE 3: TWO-HAND (BIMANUAL) SIGNS MASTERCLASS
     # =========================================================================
     elif tutorial_section == "👐 Two-Hand (Bimanual) Signs Masterclass (7 Words)":
         st.markdown("""
