@@ -132,6 +132,17 @@ streamlit run app/app.py
 - **Static Image Analysis Tab**: Upload photos to inspect landmarks and test prediction.
 - **Model Evaluation Tab**: View live Confusion Matrix heatmap and precision/recall metrics.
 
+> [!TIP]
+> ### 📹 Camera Setup & Troubleshooting (When Running on Other Computers)
+> If running on another laptop or computer and the camera does not immediately display:
+> 1. **Windows Hello / Dual-Camera Laptops**: On many modern laptops (ThinkPad, Dell XPS, HP Envy, Surface), **Webcam Index 0** is the Infrared (IR) face-unlock sensor which cannot stream normal color video. The app has **Auto-Switch Camera** enabled by default, or you can simply select **Webcam Index 1** in the left sidebar.
+> 2. **Hardware Diagnostics**: Click **"🔍 Scan Cameras"** in the sidebar to view all active, connected webcams and their status.
+> 3. **Operating System Privacy Settings**:
+>    - **Windows**: Go to *Settings > Privacy & security > Camera* and make sure **"Let desktop apps access your camera"** is toggled **ON** (allows Python to read video).
+>    - **macOS**: Go to *System Settings > Privacy & Security > Camera* and enable access for your Terminal or VS Code.
+> 4. **Close Background Apps**: Ensure Zoom, Microsoft Teams, Google Meet, Skype, or the Windows Camera app are closed.
+> 5. **Instant In-Browser Webcam Mode**: If local operating system permissions prevent OpenCV from accessing hardware, toggle the radio button to **"📸 In-Browser Webcam (Instant Snapshot)"** to capture signs directly through your web browser with zero driver friction!
+
 #### Option B: Native OpenCV Real-Time Window (Ultra-Smooth 30+ FPS)
 ```powershell
 python app/realtime_cv.py --camera 0

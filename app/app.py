@@ -40,6 +40,11 @@ from utils.labels import format_label_for_display
 from utils.speech import speak_text
 from utils.sentence_engine import EnterpriseSentenceEngine
 from utils.prediction_logger import PredictionLogger
+from prediction.camera_manager import (
+    open_robust_camera,
+    scan_all_cameras,
+    release_camera_safely,
+)
 try:
     from tutorial_view import render_tutorial_tab
 except (ModuleNotFoundError, ImportError):
@@ -181,6 +186,8 @@ if "pred_logger" not in st.session_state:
     st.session_state.pred_logger = PredictionLogger()
 if "speaker_name" not in st.session_state:
     st.session_state.speaker_name = "Alex (ASL Presenter)"
+if "detected_cameras" not in st.session_state:
+    st.session_state.detected_cameras = None
 
 
 @st.cache_resource(show_spinner="Loading Deep Learning LSTM model & Landmark Stabilizers...")
@@ -314,18 +321,53 @@ def main():
         st.subheader("🎥 Camera & Performance")
         c_cam1, c_cam2 = st.columns([1, 1])
         with c_cam1:
-            camera_id = st.selectbox("Webcam Index", options=[0, 1, 2], index=0)
+            camera_id = st.selectbox(
+                "Webcam Index",
+                options=[0, 1, 2, 3],
+                index=0,
+                help="Try Index 1 if Index 0 is an Infrared/Windows Hello sensor or black screen."
+            )
         with c_cam2:
+            backend_choice = st.selectbox(
+                "Capture Backend",
+                options=["Auto", "DirectShow", "MSMF", "Default"],
+                index=0,
+                help="Auto tests DirectShow then MSMF. DirectShow offers lowest latency on Windows."
+            )
+
+        c_fps, c_auto = st.columns([1, 1])
+        with c_fps:
             perf_mode = st.selectbox(
                 "FPS Mode",
                 options=["Balanced (30 FPS)", "High Speed (60 FPS)", "Power Saver (20 FPS)"],
                 index=0
             )
+        with c_auto:
+            auto_fallback_enabled = st.checkbox(
+                "Auto-Switch Camera",
+                value=True,
+                help="If selected camera is offline or an IR sensor, auto-switches to the first working camera."
+            )
 
-        if st.button("🔄 Force Release Camera Device", help="Click if webcam appears locked or busy by Windows"):
-            st.session_state.webcam_running = False
-            cv2.destroyAllWindows()
-            st.toast("Camera hardware released.")
+        col_cam_act1, col_cam_act2 = st.columns(2)
+        with col_cam_act1:
+            if st.button("🔍 Scan Cameras", use_container_width=True, help="Detect connected cameras and report their status"):
+                with st.spinner("Probing camera hardware..."):
+                    detected = scan_all_cameras(max_indices=3)
+                    st.session_state.detected_cameras = detected
+        with col_cam_act2:
+            if st.button("🔄 Force Release", use_container_width=True, help="Click if webcam appears locked or busy by Windows"):
+                st.session_state.webcam_running = False
+                release_camera_safely(None)
+                st.toast("Camera hardware released.")
+
+        if st.session_state.detected_cameras:
+            with st.expander("📋 Camera Hardware Scan Results", expanded=True):
+                for cam_info in st.session_state.detected_cameras:
+                    if cam_info["working"]:
+                        st.success(f"**Camera {cam_info['index']}:** {cam_info['note']}")
+                    else:
+                        st.caption(f"**Camera {cam_info['index']}:** Offline / Busy")
 
         st.markdown("---")
         if st.button("🧹 Reset Sentence & Sequence Buffer"):
@@ -446,11 +488,13 @@ def main():
                 st.text_area("Recent File Log", value=logger.get_file_content(), height=180)
 
         with col_video:
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                start_btn = st.button("▶️ Start Webcam", use_container_width=True, type="primary")
-            with btn_col2:
-                stop_btn = st.button("⏹️ Stop Webcam", use_container_width=True)
+            # Mode Toggle: Continuous Live Stream vs In-Browser Snapshot
+            cam_mode = st.radio(
+                "Camera Input Mode:",
+                options=["🎥 Live Stream (OpenCV)", "📸 In-Browser Webcam (Instant Snapshot)"],
+                horizontal=True,
+                help="Switch to 'In-Browser Webcam' if live stream is blocked by OS camera permissions or virtual drivers."
+            )
 
             # Live Closed-Captions HUD Banner
             cc_placeholder = st.empty()
@@ -462,48 +506,110 @@ def main():
                 unsafe_allow_html=True
             )
 
-            video_placeholder = st.empty()
+            if cam_mode == "📸 In-Browser Webcam (Instant Snapshot)":
+                st.info("💡 **In-Browser Webcam Mode**: Uses your browser directly via WebRTC. Works seamlessly on any OS (Windows, Mac, Linux) with zero driver conflicts.")
+                browser_snap = st.camera_input("Hold up your ASL sign and click 'Take Photo'", key="browser_cam_snap")
+                if browser_snap is not None:
+                    bytes_data = browser_snap.getvalue()
+                    frame = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+                    if frame is not None and predictor is not None:
+                        with st.spinner("Analyzing ASL sign hand kinematics..."):
+                            pred = predictor.predict_frame(frame)
+                        
+                        annotated = frame.copy()
+                        if pred.hand_detected:
+                            if pred.dual_result is not None:
+                                draw_dual_styled_landmarks(annotated, pred.dual_result)
+                            elif pred.hand_landmarks_proto:
+                                draw_styled_landmarks(annotated, pred.hand_landmarks_proto)
 
-            if start_btn:
-                st.session_state.webcam_running = True
-            if stop_btn:
-                st.session_state.webcam_running = False
+                            disp_sign = pred.display_label
+                            st.success(f"🎯 **Predicted Sign:** `{disp_sign}` ({pred.confidence_score:.1f}% confidence)")
 
-            if st.session_state.webcam_running:
-                if predictor is None:
+                            # Update HUD
+                            cc_placeholder.markdown(
+                                f'<div class="cc-hud">'
+                                f'<div class="cc-speaker">🎙️ LIVE ASL PREDICTED SIGNS</div>'
+                                f'<div class="cc-content">{disp_sign}</div>'
+                                f'</div>',
+                                unsafe_allow_html=True
+                            )
+
+                            snap_col1, snap_col2 = st.columns(2)
+                            with snap_col1:
+                                if st.button("➕ Add to Sentence", key="btn_add_snap", use_container_width=True):
+                                    engine.add_character(pred.label)
+                                    text_display_box.markdown(
+                                        f'<div class="text-box">{engine.get_full_sentence()}</div>',
+                                        unsafe_allow_html=True
+                                    )
+                                    st.toast(f"Added '{pred.label}' to sentence!")
+                            with snap_col2:
+                                if st.button("🔊 Speak Sign", key="btn_speak_snap", use_container_width=True):
+                                    speak_text(pred.label)
+                                    st.toast(f"Spoke: {pred.label}")
+                        else:
+                            st.warning("⚠️ No hand landmarks detected. Hold your hand clearly in front of the camera and retake.")
+
+                        st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption="Landmark Annotated Snapshot", use_container_width=True)
+
+            else:
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    start_btn = st.button("▶️ Start Webcam", use_container_width=True, type="primary")
+                with btn_col2:
+                    stop_btn = st.button("⏹️ Stop Webcam", use_container_width=True)
+
+                video_placeholder = st.empty()
+
+                if start_btn:
+                    st.session_state.webcam_running = True
+                if stop_btn:
+                    st.session_state.webcam_running = False
+
+                if not st.session_state.webcam_running:
+                    video_placeholder.info("Webcam is idle. Click **'Start Webcam'** above to begin live motion detection and captions.")
+                elif predictor is None:
                     st.error("Cannot start webcam without a trained LSTM model.")
                 else:
-                    # Windows DirectShow backend avoids MSMF memory buffer locks & freezes
-                    cap = None
-                    if sys.platform.startswith("win"):
-                        try:
-                            cap = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
-                            if not cap.isOpened():
-                                cap = None
-                        except Exception:
-                            cap = None
+                    # Robust multi-backend camera initialization with auto-fallback
+                    cap, actual_cam_id, b_used, switch_notif = open_robust_camera(
+                        requested_index=camera_id,
+                        preferred_backend=backend_choice,
+                        auto_fallback=auto_fallback_enabled
+                    )
+
+                    if switch_notif:
+                        st.info(switch_notif)
 
                     if cap is None:
-                        cap = cv2.VideoCapture(camera_id)
+                        st.error(f"❌ Could not open webcam index {camera_id}.")
+                        with st.expander("❓ Why is my camera not displaying? Quick 1-Minute Fix", expanded=True):
+                            st.markdown("""
+                            **1. Laptop with Windows Hello (Face Unlock)?**
+                            - Many laptops (ThinkPad, Dell XPS, HP Envy, Surface) place the Infrared sensor at **Camera Index 0**.
+                            - **Fix:** In the left sidebar under *Camera & Performance*, select **Webcam Index 1** and click **Start Webcam** again.
 
-                    if not cap.isOpened():
-                        st.error(
-                            f"Could not open webcam index {camera_id}. "
-                            "Please ensure no other application (Zoom, Teams, Camera app) is using the camera, "
-                            "or click 'Force Release Camera Device' in the sidebar."
-                        )
+                            **2. Windows / macOS Camera Privacy Permissions:**
+                            - **Windows:** Open *Settings > Privacy & security > Camera*. Ensure **'Let desktop apps access your camera'** is turned **ON** (allows Python).
+                            - **macOS:** Open *System Settings > Privacy & Security > Camera*. Grant permission to Terminal / VS Code / Python.
+
+                            **3. Camera In Use by Another Application:**
+                            - Close Zoom, Microsoft Teams, Google Meet, Skype, or the Windows Camera app.
+
+                            **4. Try Another Capture Backend:**
+                            - In the sidebar, change *Capture Backend* from `Auto` to `DirectShow` (Windows) or `MSMF`.
+
+                            **5. Instant In-Browser Fallback:**
+                            - Select **'📸 In-Browser Webcam (Instant Snapshot)'** above to capture signs directly through your browser!
+                            """)
                         st.session_state.webcam_running = False
                     else:
-                        # Hardware camera tuning: 640x480 standard resolution + 1 frame buffer (zero lag)
-                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                        cap.set(cv2.CAP_PROP_FPS, 30)
-                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
                         auto_commit_counter = 0
                         last_auto_char = ""
                         last_rendered_phrase = ""
                         frame_idx = 0
+                        consecutive_dropped = 0
 
                         # Throttling step based on performance mode
                         metric_step = 2 if "60 FPS" in perf_mode else (4 if "Power Saver" in perf_mode else 3)
@@ -512,9 +618,15 @@ def main():
                         try:
                             while st.session_state.webcam_running:
                                 ret, frame = cap.read()
-                                if not ret or frame is None:
-                                    st.warning("Camera disconnected or frame dropped.")
-                                    break
+                                if not ret or frame is None or frame.size == 0:
+                                    consecutive_dropped += 1
+                                    if consecutive_dropped <= 15:  # Grace period for sensor exposure adjustments
+                                        time.sleep(0.03)
+                                        continue
+                                    else:
+                                        st.warning(f"Webcam (Camera {actual_cam_id}) stopped transmitting video frames.")
+                                        break
+                                consecutive_dropped = 0
 
                                 frame_idx += 1
                                 frame = cv2.flip(frame, 1)
@@ -663,10 +775,22 @@ def main():
                                     time.sleep(sleep_time)
 
                         finally:
-                            if cap is not None:
-                                cap.release()
-            else:
-                video_placeholder.info("Webcam is idle. Click **'Start Webcam'** above to begin live motion detection and captions.")
+                            release_camera_safely(cap)
+
+                with st.expander("❓ Camera Not Displaying? Quick 1-Minute Troubleshooting", expanded=False):
+                    st.markdown("""
+                    - **1. Using a laptop with Windows Hello (Face Unlock)?**
+                      Laptops like ThinkPad, Dell XPS, HP Envy, Surface put the Infrared camera at **Webcam Index 0**.
+                      👉 Select **Webcam Index 1** in the left sidebar under *Camera & Performance* and click **Start Webcam**.
+                    - **2. Check Windows / macOS Camera Privacy Permissions:**
+                      - **Windows:** Go to *Settings > Privacy & security > Camera*. Make sure *"Let desktop apps access your camera"* is enabled.
+                      - **macOS:** Go to *System Settings > Privacy & Security > Camera* and enable for your Terminal/IDE.
+                    - **3. Camera in use by another app:** Close Zoom, Microsoft Teams, Meet, or the Windows Camera app.
+                    - **4. Try another Capture Backend:** In the sidebar, change *Capture Backend* from `Auto` to `DirectShow` or `MSMF`.
+                    - **5. Switch to In-Browser Webcam Mode:** Click the **'📸 In-Browser Webcam'** option above to use your web browser's camera directly without OpenCV hardware restrictions!
+                    """)
+
+
 
     # =========================================================================
     # TAB 2: STATIC IMAGE ANALYSIS & DATASET EXPLORER
