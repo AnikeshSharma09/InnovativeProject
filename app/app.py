@@ -232,14 +232,14 @@ def main():
         st.header("⚙️ System Control")
         
         if predictor is not None:
-            if predictor.lstm_model is not None and predictor.rf_model is not None:
-                st.success("🟢 Dual Base Engines: **PyTorch LSTM + Random Forest**")
+            if predictor.lstm_model is not None and getattr(predictor, "has_rf_model", False):
+                st.success("🟢 Dual Base Engines: **PyTorch LSTM + Random Forest** (Lightweight Lazy-Load)")
             elif predictor.lstm_model is not None:
                 st.success("🟢 Deep Learning: **PyTorch LSTM**")
             else:
                 st.info("🟡 Baseline Model: **Random Forest**")
             
-            if hasattr(predictor, 'wlasl_model') and predictor.wlasl_model is not None:
+            if hasattr(predictor, 'wlasl_classes') and predictor.wlasl_classes:
                 st.success(f"🎬 WLASL Word Engine: **{len(predictor.wlasl_classes)} Signs Active**")
 
             st.info(f"📊 Base Alphabet Classes ({len(predictor.classes)}): {', '.join(predictor.classes[:6])}...")

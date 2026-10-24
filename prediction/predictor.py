@@ -137,10 +137,10 @@ class SignPredictor:
 
         # Load models
         self.lstm_model: Optional[MotionSignLSTM] = None
-        self.rf_model = None
+        self._rf_model = None
+        self._wlasl_model = None
         self.label_encoder = None
         self.classes: List[str] = []
-        self.wlasl_model = None
         self.wlasl_encoder = None
         self.wlasl_classes: List[str] = []
         self._load_models()
@@ -155,8 +155,43 @@ class SignPredictor:
             min_tracking_confidence=0.35
         )
 
+    @property
+    def rf_model(self):
+        """Lazy-loads Random Forest baseline (~80MB RAM) on-demand only when requested."""
+        if self._rf_model is None and self.rf_model_path.exists():
+            try:
+                self._rf_model = joblib.load(self.rf_model_path)
+                print(f"[+] SignPredictor: On-demand loaded Random Forest baseline from {self.rf_model_path}")
+            except Exception as e:
+                print(f"[!] Warning: Could not load RF model: {e}")
+        return self._rf_model
+
+    @rf_model.setter
+    def rf_model(self, value):
+        self._rf_model = value
+
+    @property
+    def has_rf_model(self) -> bool:
+        """Checks if Random Forest checkpoint is available on disk without allocating RAM."""
+        return self._rf_model is not None or self.rf_model_path.exists()
+
+    @property
+    def wlasl_model(self):
+        """Lazy-loads WLASL Word Model (~25MB RAM) on-demand only when requested."""
+        if self._wlasl_model is None and self.wlasl_model_path.exists():
+            try:
+                self._wlasl_model = joblib.load(self.wlasl_model_path)
+                print(f"[+] SignPredictor: On-demand loaded WLASL Word Model from {self.wlasl_model_path}")
+            except Exception as e:
+                print(f"[!] Warning: Could not load WLASL Word Model: {e}")
+        return self._wlasl_model
+
+    @wlasl_model.setter
+    def wlasl_model(self, value):
+        self._wlasl_model = value
+
     def _load_models(self) -> None:
-        """Loads both LSTM checkpoint and Random Forest model if available."""
+        """Loads lightweight LSTM checkpoint and metadata; keeps heavy baseline models lazy."""
         if not self.encoder_path.exists():
             raise FileNotFoundError(
                 f"Label encoder not found at '{self.encoder_path}'. "
@@ -166,7 +201,7 @@ class SignPredictor:
         self.label_encoder = joblib.load(self.encoder_path)
         self.classes = [str(c) for c in self.label_encoder.classes_]
 
-        # Load LSTM model if exists
+        # Load primary LSTM model (compact ~1MB)
         if self.lstm_model_path.exists():
             try:
                 loaded = load_lstm_checkpoint(
@@ -180,25 +215,15 @@ class SignPredictor:
             except Exception as e:
                 print(f"[!] Warning: Could not load LSTM model: {e}")
 
-        # Load Random Forest model if exists
-        if self.rf_model_path.exists():
+        # Pre-load lightweight WLASL encoder classes without loading the heavy model pickle
+        if self.wlasl_encoder_path.exists():
             try:
-                self.rf_model = joblib.load(self.rf_model_path)
-                print(f"[+] SignPredictor: Loaded Random Forest baseline from {self.rf_model_path}")
-            except Exception as e:
-                print(f"[!] Warning: Could not load RF model: {e}")
-
-        # Load WLASL Word Model if exists
-        if self.wlasl_model_path.exists() and self.wlasl_encoder_path.exists():
-            try:
-                self.wlasl_model = joblib.load(self.wlasl_model_path)
                 self.wlasl_encoder = joblib.load(self.wlasl_encoder_path)
                 self.wlasl_classes = [str(c) for c in self.wlasl_encoder.classes_]
-                print(f"[+] SignPredictor: Loaded WLASL Word-Level Model with {len(self.wlasl_classes)} vocabulary signs")
-            except Exception as e:
-                print(f"[!] Warning: Could not load WLASL Word Model: {e}")
+            except Exception:
+                pass
 
-        if self.lstm_model is None and self.rf_model is None:
+        if self.lstm_model is None and not self.has_rf_model:
             raise FileNotFoundError(
                 f"Neither LSTM checkpoint '{self.lstm_model_path}' nor RF model '{self.rf_model_path}' found."
             )

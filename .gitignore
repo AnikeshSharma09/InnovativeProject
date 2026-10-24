@@ -9,3 +9,6 @@ __pycache__/
 archive/
 New datset/
 *.zip
+data/*.npy
+data/temp_*.mp4
+data/temp_*.avi
