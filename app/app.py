@@ -36,6 +36,7 @@ from utils.labels import format_label_for_display
 from utils.speech import speak_text
 from utils.sentence_engine import EnterpriseSentenceEngine
 from utils.prediction_logger import PredictionLogger
+from app.tutorial_view import render_tutorial_tab
 import torch
 
 # Page Configuration
@@ -297,11 +298,12 @@ def main():
             st.session_state.accumulated_text = ""
             st.success("Buffers reset.")
 
-    # Main Tabs: Cleaned to 3 focused tabs
-    tab_webcam, tab_upload, tab_metrics = st.tabs([
+    # Main Tabs: Cleaned to 4 focused tabs
+    tab_webcam, tab_upload, tab_metrics, tab_tutorial = st.tabs([
         "📹 Live Motion Webcam & Prediction Logger",
         "🖼️ Static Image Analysis & Dataset Explorer",
-        "📊 LSTM Model Evaluation & Metrics"
+        "📊 Model Performance & Metrics",
+        "📖 Interactive Sign Tutorial & Practice Guide"
     ])
 
     # =========================================================================
@@ -812,6 +814,12 @@ def main():
                     st.dataframe(df_report, use_container_width=True, height=450)
         else:
             st.info("No evaluation results found yet. Run `python training/evaluate_lstm.py` to evaluate your trained LSTM on the 20% test dataset.")
+
+    # =========================================================================
+    # TAB 4: INTERACTIVE SIGN TUTORIAL & PRACTICE GUIDE
+    # =========================================================================
+    with tab_tutorial:
+        render_tutorial_tab()
 
 
 if __name__ == "__main__":
