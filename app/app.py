@@ -427,23 +427,23 @@ def main():
                     if st.session_state.last_stable_char:
                         engine.add_character(st.session_state.last_stable_char)
                         text_display_box.markdown(
-                            f'<div class="text-box">{engine.get_full_sentence()}</div>',
+                            f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
                             unsafe_allow_html=True
                         )
             with c2:
                 if st.button("␣ Space / Commit", use_container_width=True):
-                    committed = engine.commit_current_word(autocorrect=False)
+                    committed = engine.commit_current_word(autocorrect=True)
                     if committed:
                         logger.log_prediction(committed, tag="WORD")
                     text_display_box.markdown(
-                        f'<div class="text-box">{engine.get_full_sentence()}</div>',
+                        f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
                         unsafe_allow_html=True
                     )
             with c3:
                 if st.button("⌫ Backspace", use_container_width=True):
                     engine.backspace()
                     text_display_box.markdown(
-                        f'<div class="text-box">{engine.get_full_sentence()}</div>',
+                        f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
                         unsafe_allow_html=True
                     )
 
@@ -538,16 +538,23 @@ def main():
                             snap_col1, snap_col2 = st.columns(2)
                             with snap_col1:
                                 if st.button("➕ Add to Sentence", key="btn_add_snap", use_container_width=True):
-                                    engine.add_character(pred.label)
+                                    sign_val = pred.phrase_text if (pred.is_phrase and pred.phrase_text) else (pred.stable_label or pred.predicted_label or pred.label)
+                                    if pred.is_phrase or len(sign_val) > 1:
+                                        engine.add_phrase(sign_val)
+                                        logger.log_prediction(sign_val, tag="WORD")
+                                    else:
+                                        engine.add_character(sign_val)
+                                    updated_full = engine.get_full_sentence(include_current=True)
                                     text_display_box.markdown(
-                                        f'<div class="text-box">{engine.get_full_sentence()}</div>',
+                                        f'<div class="text-box">{updated_full}</div>',
                                         unsafe_allow_html=True
                                     )
-                                    st.toast(f"Added '{pred.label}' to sentence!")
+                                    st.toast(f"Added '{sign_val}' to sentence!")
                             with snap_col2:
                                 if st.button("🔊 Speak Sign", key="btn_speak_snap", use_container_width=True):
-                                    speak_text(pred.label)
-                                    st.toast(f"Spoke: {pred.label}")
+                                    sign_val = pred.phrase_text if (pred.is_phrase and pred.phrase_text) else (pred.stable_label or pred.predicted_label or pred.label)
+                                    speak_text(sign_val)
+                                    st.toast(f"Spoke: {sign_val}")
                         else:
                             st.warning("⚠️ No hand landmarks detected. Hold your hand clearly in front of the camera and retake.")
 
@@ -646,13 +653,17 @@ def main():
                                     elif pred.hand_landmarks_proto:
                                         draw_styled_landmarks(frame, pred.hand_landmarks_proto)
 
-                                # Check for whole-sentence / macro phrase
+                                # Check for whole-sentence / macro phrase or WLASL whole-word sign
                                 if pred.is_phrase and pred.phrase_text:
                                     if pred.phrase_text != last_rendered_phrase:
                                         engine.add_phrase(pred.phrase_text)
-                                        logger.log_prediction(pred.phrase_text, tag="2-HAND" if pred.is_two_handed else "PHRASE")
+                                        logger.log_prediction(pred.phrase_text, tag="2-HAND" if pred.is_two_handed else "WORD")
                                         last_rendered_phrase = pred.phrase_text
-                                        st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '🎉'} Sign Detected: {pred.phrase_text}")
+                                        st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '📖 Word'} Detected: {pred.phrase_text}")
+                                        text_display_box.markdown(
+                                            f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                                            unsafe_allow_html=True
+                                        )
 
                                 # Automatic character accumulation debouncing
                                 if pred.is_stable and pred.stable_label and not pred.is_uncertain:
@@ -661,22 +672,33 @@ def main():
                                         auto_commit_counter = 0
                                     else:
                                         auto_commit_counter += 1
-                                        if auto_commit_counter >= 15:  # ~0.5 seconds stable hold
+                                        if auto_commit_counter >= 12:  # ~0.4 seconds stable hold for responsive fingerspelling
                                             ch = pred.stable_label
                                             engine.add_character(ch)
                                             last_auto_char = ch
                                             auto_commit_counter = 0
+                                            text_display_box.markdown(
+                                                f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                                                unsafe_allow_html=True
+                                            )
                                 else:
                                     auto_commit_counter = 0
-                                    if not pred.hand_detected:
+                                    # Reset last_auto_char when hand moves/repositions or leaves view so repeated letters work cleanly
+                                    if not pred.hand_detected or pred.kinetic_energy > 0.015:
                                         last_auto_char = ""
+                                    if not pred.hand_detected:
                                         last_rendered_phrase = ""
 
-                                # Check pause autospace (automatically commits and stores finished word)
+                                # Check pause autospace (automatically commits and stores finished word with autocorrect)
                                 if engine.current_word and (time.time() - engine.last_char_timestamp) > engine.pause_autospace_seconds:
-                                    word_saved = engine.commit_current_word(autocorrect=False)
+                                    word_saved = engine.commit_current_word(autocorrect=True)
                                     if word_saved:
                                         logger.log_prediction(word_saved, tag="WORD")
+                                        st.toast(f"✨ Word Formed: {word_saved}")
+                                        text_display_box.markdown(
+                                            f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                                            unsafe_allow_html=True
+                                        )
 
                                 # Render native on-frame Closed Caption bar for screen recording / sharing
                                 cv2.rectangle(frame, (0, h - 70), (w, h), (15, 23, 42), -1)
@@ -768,6 +790,13 @@ def main():
                                         f'<div class="cc-speaker">🎙️ LIVE ASL PREDICTED SIGNS</div>'
                                         f'<div class="cc-content">{disp_cc}</div>'
                                         f'</div>',
+                                        unsafe_allow_html=True
+                                    )
+
+                                    # Real-time Sentence & Words Box update
+                                    current_full = engine.get_full_sentence(include_current=True) or "(Predicted sign sentence will form here as you sign...)"
+                                    text_display_box.markdown(
+                                        f'<div class="text-box">{current_full}</div>',
                                         unsafe_allow_html=True
                                     )
 

@@ -77,6 +77,11 @@ class PredictionOutput:
     right_hand_proto: Optional[object] = None
     dual_result: Optional[DualHandDetectionResult] = None
 
+    @property
+    def label(self) -> str:
+        """Compatibility property for UI consumers expecting .label"""
+        return self.display_label or self.predicted_label or ""
+
 
 class SignPredictor:
     """
@@ -223,17 +228,26 @@ class SignPredictor:
             except Exception:
                 pass
 
+        if not self.wlasl_classes:
+            classes_json_path = self.models_dir / "wlasl_classes.json"
+            if classes_json_path.exists():
+                try:
+                    with open(classes_json_path, "r", encoding="utf-8") as f:
+                        self.wlasl_classes = json.load(f)
+                except Exception:
+                    pass
+
         if self.lstm_model is None and not self.has_rf_model:
             raise FileNotFoundError(
                 f"Neither LSTM checkpoint '{self.lstm_model_path}' nor RF model '{self.rf_model_path}' found."
             )
 
-    def predict_wlasl_word(self, min_confidence: float = 0.40) -> Optional[Tuple[str, float]]:
+    def predict_wlasl_word(self, min_confidence: float = 0.35) -> Optional[Tuple[str, float]]:
         """
         Evaluates the rolling temporal motion window against the WLASL Word-Level Model.
         Returns: (predicted_word, confidence_probability) if confident, or None.
         """
-        if self.wlasl_model is None or len(self.sequence_buffer) < 10:
+        if self.wlasl_model is None or len(self.sequence_buffer) < 8:
             return None
 
         frames = list(self.sequence_buffer)
@@ -506,16 +520,19 @@ class SignPredictor:
         # Determine motion state based on stabilized kinetic energy
         if dual_res.is_bimanual:
             motion_state = "DUAL HANDS DETECTED"
-        elif kinetic_energy > 0.15:
+        elif kinetic_energy > 0.08:
             motion_state = "FAST MOTION"
-        elif kinetic_energy > 0.04:
+        elif kinetic_energy > 0.008:
             motion_state = "ACTIVE MOTION"
         else:
             motion_state = "STATIC HOLD"
 
         # Step 3.5: Evaluate Word-Level WLASL Signs during motion or when in word/hybrid mode
-        if self.wlasl_model is not None and (self.engine_mode in ("wlasl", "hybrid") or (self.engine_mode == "auto" and kinetic_energy > 0.045)):
-            min_thresh = 0.42 if self.engine_mode == "wlasl" else 0.55
+        if self.wlasl_model is not None and (
+            self.engine_mode in ("wlasl", "hybrid") or 
+            (self.engine_mode == "auto" and (kinetic_energy > 0.008 or len(self.sequence_buffer) >= 8))
+        ):
+            min_thresh = 0.28 if self.engine_mode == "wlasl" else 0.35
             wlasl_res = self.predict_wlasl_word(min_confidence=min_thresh)
             if wlasl_res is not None:
                 word_label, word_prob = wlasl_res
