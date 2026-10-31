@@ -180,3 +180,37 @@ This software is built for high-security and private healthcare, educational, an
 - **Zero Cloud Network Transmission:** All video processing, landmark inference, CTC decoding, and grammar translation run strictly locally on the user's CPU.
 - **Offline Text-to-Speech:** Pyttsx3 operates 100% offline without sending text to remote cloud synthesis APIs.
 - **Audit-Ready Logging:** Prediction logging can be disabled at any time from the UI with zero persistent disk footprint.
+
+---
+
+## 🐳 Docker Deployment & Containerization
+
+The project is fully containerized with a production-grade, CPU-optimized `Dockerfile` and `docker-compose.yml`.
+
+### 1. Run using Docker Compose (Recommended)
+```powershell
+docker compose up -d
+```
+Open `http://localhost:8501` in your web browser. All user corrections, personal vocabulary, and prediction logs persist automatically to `./data/` on the host machine.
+
+### 2. Run using Docker CLI
+```powershell
+# Build image locally
+docker build -t anikesh09/asl-sign-ai:latest -t asl-sign-ai:latest .
+
+# Run container with volume mount
+docker run -d -p 8501:8501 --name asl-sign-ai -v ${PWD}/data:/app/data anikesh09/asl-sign-ai:latest
+```
+
+### 3. Stop the Container
+```powershell
+docker compose down
+# or
+docker stop asl-sign-ai && docker rm asl-sign-ai
+```
+
+### 4. Push to Docker Hub
+```powershell
+docker push anikesh09/asl-sign-ai:latest
+```
+

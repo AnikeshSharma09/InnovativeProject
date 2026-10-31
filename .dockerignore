@@ -1,0 +1,36 @@
+# Version Control
+.git
+.gitignore
+.gitattributes
+
+# Large Datasets & Archives
+archive/
+New datset/
+*.zip
+*.tar.gz
+*.mp4
+*.avi
+*.mov
+
+# Python & Environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Documentation & Scratch Files
+*.docx
+*.pdf
+scratch/
+
+# IDE & OS Files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
