@@ -156,6 +156,17 @@ def open_robust_camera(
                         break
                     time.sleep(0.04)
 
+                if not delivered:
+                    # Retry cleanly without forced FourCC in case driver doesn't support MJPG
+                    cap.release()
+                    cap = cv2.VideoCapture(idx, b_api)
+                    for _ in range(5):
+                        ret, test_frame = cap.read()
+                        if ret and test_frame is not None and test_frame.size > 0:
+                            delivered = True
+                            break
+                        time.sleep(0.04)
+
                 if delivered:
                     if idx != requested_index:
                         notification = (

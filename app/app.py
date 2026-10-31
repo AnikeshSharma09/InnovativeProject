@@ -887,10 +887,9 @@ def main():
                                     cv2.putText(annotated_frame, f"FPS: {live_fps:.1f}", (w - 135, 33),
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, fps_color, 2, cv2.LINE_AA)
 
-                                    # Fast SIMD JPEG byte stream for instant zero-lag rendering
-                                    ret_enc, jpeg_buf = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_qual])
-                                    if ret_enc:
-                                        video_placeholder.image(jpeg_buf.tobytes(), format="JPEG", use_container_width=True)
+                                    # High-FPS rendering with native JPEG compression in Streamlit
+                                    rgb_display = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                                    video_placeholder.image(rgb_display, channels="RGB", output_format="JPEG", use_container_width=True)
 
                                     if c_res.new_sign_emitted and c_res.emitted_sign_text:
                                         if not st.session_state.disable_logging:
@@ -1001,10 +1000,9 @@ def main():
                                     cv2.putText(frame, f"FPS: {live_fps:.1f}", (w - 135, 33),
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, fps_color, 2, cv2.LINE_AA)
 
-                                    # Fast SIMD JPEG byte stream for instant zero-lag rendering
-                                    ret_enc, jpeg_buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_qual])
-                                    if ret_enc:
-                                        video_placeholder.image(jpeg_buf.tobytes(), format="JPEG", use_container_width=True)
+                                    # High-FPS rendering with native JPEG compression in Streamlit
+                                    rgb_display = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                                    video_placeholder.image(rgb_display, channels="RGB", output_format="JPEG", use_container_width=True)
 
                                     # Throttled status updates
                                     if frame_idx % metric_step == 0:
@@ -1058,6 +1056,10 @@ def main():
                                 if sleep_time > 0:
                                     time.sleep(sleep_time)
 
+                        except Exception as loop_err:
+                            st.error(f"❌ Real-time camera processing error: {loop_err}")
+                            import traceback
+                            st.code(traceback.format_exc(), language="python")
                         finally:
                             release_camera_safely(cap)
 
