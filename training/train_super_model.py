@@ -69,7 +69,9 @@ def main():
     print("  HIGH-PRECISION SIGN LANGUAGE CLASSIFIER TRAINING PIPELINE  ")
     print("=" * 65)
 
-    data_path = Path("data/landmarks_cleaned.csv")
+    data_path = Path("data/landmarks_combined.csv")
+    if not data_path.exists():
+        data_path = Path("data/landmarks_cleaned.csv")
     if not data_path.exists():
         data_path = Path("data/landmarks.csv")
     if not data_path.exists():

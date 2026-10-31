@@ -101,8 +101,8 @@ class SignPredictor:
         encoder_path: str = "models/label_encoder.pkl",
         rf_model_path: str = "models/sign_model.pkl",
         sequence_length: int = DEFAULT_SEQUENCE_LENGTH,
-        min_confidence: float = 0.35,
-        min_margin: float = 0.04,
+        min_confidence: float = 0.28,
+        min_margin: float = 0.03,
         engine_mode: str = "auto",
         enable_stabilization: bool = True,
         stabilizer_min_cutoff: float = 0.8,
@@ -132,7 +132,7 @@ class SignPredictor:
             min_cutoff=stabilizer_min_cutoff,
             beta=stabilizer_beta
         )
-        self.prob_stabilizer = ProbabilityStabilizer(alpha=0.65)
+        self.prob_stabilizer = ProbabilityStabilizer(alpha=0.90)
 
         # Whole-Sentence & Dual-Hand Recognition Engine
         self.phrase_recognizer = EnterprisePhraseRecognizer(enable_single_hand_macros=False)
@@ -338,6 +338,10 @@ class SignPredictor:
         top2_label = self.classes[top2_idx]
         top2_set = {top1_label, top2_label}
 
+        # If the ML ensemble model is already highly confident (>= 50%), trust the learned representations completely
+        if probs[top1_idx] >= 0.50:
+            return probs, None
+
         # Landmarks
         t_tip = np.array(raw_coords[4])
         i_tip = np.array(raw_coords[8])
@@ -435,6 +439,58 @@ class SignPredictor:
                 _disambiguate_pair("J", "I", favor_a=True, reason=f"Curve swoop motion ({kinetic_energy:.3f})")
             elif 0.0 < kinetic_energy < 0.022:
                 _disambiguate_pair("J", "I", favor_a=False, reason=f"Static pinky hold ({kinetic_energy:.3f})")
+
+        # 8. 'P' vs 'Q' Disambiguation (both pointing downward)
+        if top2_set == {"P", "Q"}:
+            mid_is_ext = np.linalg.norm(m_tip - w) > np.linalg.norm(np.array(raw_coords[10]) - w) * 1.05
+            if mid_is_ext:
+                _disambiguate_pair("P", "Q", favor_a=True, reason="Extended middle finger in downward sign")
+            else:
+                _disambiguate_pair("P", "Q", favor_a=False, reason="Curled middle finger in downward sign")
+
+        # 9. ASL 'H' & 'G' Horizontal Orientation Disambiguation
+        idx_ext = np.linalg.norm(i_tip - w) > np.linalg.norm(np.array(raw_coords[6]) - w) * 1.05
+        mid_ext = np.linalg.norm(m_tip - w) > np.linalg.norm(np.array(raw_coords[10]) - w) * 1.05
+        ring_ext = np.linalg.norm(r_tip - w) > np.linalg.norm(np.array(raw_coords[14]) - w) * 1.05
+        pnk_ext = np.linalg.norm(p_tip - w) > np.linalg.norm(np.array(raw_coords[18]) - w) * 1.05
+
+        v_idx = i_tip - i_mcp
+        is_horizontal = abs(v_idx[0]) > abs(v_idx[1]) * 0.70
+
+        if idx_ext and mid_ext and not ring_ext and not pnk_ext:
+            if is_horizontal and d_im < 0.32:
+                if "H" in self.classes:
+                    h_idx = self.classes.index("H")
+                    if probs[h_idx] < 0.70:
+                        probs[h_idx] = max(probs[h_idx] + 0.35, 0.85)
+                        probs = probs / np.sum(probs)
+                        disambig_notes.append("Horizontal 2-finger parallel -> 'H'")
+            elif not is_horizontal:
+                if d_im < 0.18 and "U" in self.classes:
+                    u_idx = self.classes.index("U")
+                    probs[u_idx] = max(probs[u_idx], 0.80)
+                    probs = probs / np.sum(probs)
+                elif d_im >= 0.22 and "V" in self.classes:
+                    v_idx_cls = self.classes.index("V")
+                    probs[v_idx_cls] = max(probs[v_idx_cls], 0.80)
+                    probs = probs / np.sum(probs)
+
+        if idx_ext and not mid_ext and not ring_ext and not pnk_ext and is_horizontal:
+            if "G" in self.classes:
+                g_idx = self.classes.index("G")
+                if probs[g_idx] < 0.70:
+                    probs[g_idx] = max(probs[g_idx] + 0.35, 0.80)
+                    probs = probs / np.sum(probs)
+                    disambig_notes.append("Horizontal index point -> 'G'")
+
+        # 10. ASL Closed Fist 'del' Guard
+        is_fist = not (idx_ext or mid_ext or ring_ext or pnk_ext)
+        if is_fist:
+            if "del" in self.classes:
+                del_idx = self.classes.index("del")
+                if probs[del_idx] > 0.05:
+                    probs[del_idx] = 0.01
+                    probs = probs / np.sum(probs)
 
         note = "; ".join(disambig_notes) if disambig_notes else None
         return probs, note
@@ -658,6 +714,29 @@ class SignPredictor:
         top1_prob = float(probs[top1_idx])
         top2_prob = float(probs[top2_idx])
         margin = top1_prob - top2_prob
+
+        # Confidence-Triggered Robust Recovery (recovers edge-of-frame, close-up, or harsh lighting landmarks)
+        if (top1_prob < 0.50 or margin < 0.15) and self.rf_model is not None:
+            f_rob, p_rob_proto, c_rob, rob_stage = robust_extract_landmarks_from_bgr_frame(bgr_frame, self.hands_detector)
+            if f_rob is not None:
+                p_rob = self.rf_model.predict_proba(np.array(f_rob).reshape(1, 63))[0]
+                rob_top1 = int(np.argmax(p_rob))
+                rob_prob = float(p_rob[rob_top1])
+                if rob_prob > top1_prob:
+                    probs = p_rob
+                    sorted_indices = np.argsort(probs)[::-1]
+                    top1_idx = int(sorted_indices[0])
+                    top2_idx = int(sorted_indices[1]) if len(sorted_indices) > 1 else top1_idx
+                    top3_list = [(self.classes[idx], float(probs[idx])) for idx in sorted_indices[:3]]
+                    raw_label = self.classes[top1_idx]
+                    top1_prob = float(probs[top1_idx])
+                    top2_prob = float(probs[top2_idx])
+                    margin = top1_prob - top2_prob
+                    model_used_name += f" [Robust: {rob_stage}]"
+                    if c_rob is not None:
+                        active_coords = c_rob
+                    if p_rob_proto is not None:
+                        primary_proto = p_rob_proto
 
         # Confidence Evaluation
         if top1_prob >= 0.60 and margin >= self.min_margin:

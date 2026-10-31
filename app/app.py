@@ -336,7 +336,7 @@ def main():
                 "Confidence",
                 min_value=0.20,
                 max_value=0.85,
-                value=0.40,
+                value=0.30,
                 step=0.05,
                 help="Predictions below this threshold will be flagged as UNCERTAIN."
             )
@@ -854,7 +854,7 @@ def main():
                         is_turbo = "Turbo" in perf_mode or "60 FPS" in perf_mode
                         is_power_saver = "Power Saver" in perf_mode
 
-                        metric_step = 6 if is_power_saver else (5 if is_turbo else 4)
+                        metric_step = 10 if is_power_saver else 8
                         sleep_time = 0.025 if is_power_saver else 0.0
                         jpeg_qual = 65 if is_power_saver else 72
 
@@ -866,6 +866,7 @@ def main():
 
                         try:
                             while st.session_state.webcam_running:
+                                loop_start = time.perf_counter()
                                 ret, frame = cap.read()
                                 if not ret or frame is None or frame.size == 0:
                                     consecutive_dropped += 1
@@ -989,21 +990,23 @@ def main():
                                             last_rendered_phrase = pred.phrase_text
                                             st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '📖 Word'}: {pred.phrase_text}")
 
-                                    # Static character accumulation
+                                    # Static character accumulation with fast responsive autocommit
+                                    just_committed = False
                                     if pred.is_stable and pred.stable_label and not pred.is_uncertain:
                                         st.session_state.last_stable_char = pred.stable_label
                                         if pred.stable_label == last_auto_char:
                                             auto_commit_counter = 0
                                         else:
                                             auto_commit_counter += 1
-                                            if auto_commit_counter >= 12:
+                                            if auto_commit_counter >= 7:
                                                 ch = pred.stable_label
                                                 engine.add_character(ch)
                                                 last_auto_char = ch
                                                 auto_commit_counter = 0
+                                                just_committed = True
                                     else:
-                                        auto_commit_counter = 0
-                                        if not pred.hand_detected or pred.kinetic_energy > 0.015:
+                                        auto_commit_counter = max(0, auto_commit_counter - 1)
+                                        if not pred.hand_detected or pred.kinetic_energy > 0.020:
                                             last_auto_char = ""
                                         if not pred.hand_detected:
                                             last_rendered_phrase = ""
@@ -1015,12 +1018,20 @@ def main():
                                             if not st.session_state.disable_logging:
                                                 logger.log_prediction(w_saved, tag="WORD")
                                             st.toast(f"✨ Word Formed: {w_saved}")
+                                            just_committed = True
 
                                     # Native Closed Caption overlay
                                     cv2.rectangle(frame, (0, h - 70), (w, h), (15, 23, 42), -1)
                                     disp_cc = engine.get_translated_sentence() or engine.get_full_sentence() or "(Listening for signs...)"
                                     cv2.putText(frame, f"[ASL AI]: {disp_cc[:60]}", (15, h - 25),
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.68, (255, 255, 255), 2, cv2.LINE_AA)
+
+                                    # Instant on-frame HUD banner for zero-latency visual feedback
+                                    if pred.hand_detected:
+                                        hud_text = f"SIGN: {pred.display_label} ({pred.confidence_score:.0f}%)"
+                                        hud_color = (0, 255, 127) if not pred.is_uncertain else (0, 215, 255)
+                                        cv2.rectangle(frame, (10, 10), (10 + len(hud_text) * 14 + 10, 42), (15, 23, 42), -1)
+                                        cv2.putText(frame, hud_text, (16, 33), cv2.FONT_HERSHEY_SIMPLEX, 0.65, hud_color, 2, cv2.LINE_AA)
 
                                     # Live FPS overlay badge on frame
                                     fps_color = (0, 255, 127) if live_fps >= 28 else ((0, 215, 255) if live_fps >= 20 else (0, 100, 255))
@@ -1032,8 +1043,8 @@ def main():
                                     rgb_display = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                                     video_placeholder.image(rgb_display, channels="RGB", output_format="JPEG", use_container_width=True)
 
-                                    # Throttled status updates
-                                    if frame_idx % metric_step == 0:
+                                    # Throttled status updates (DOM serialization optimization)
+                                    if frame_idx % metric_step == 0 or just_committed:
                                         if pred.num_hands == 2:
                                             metric_hands_box.markdown("🙌 **Mode:** `Dual-Hand (2 Hands Active)`")
                                         elif pred.num_hands == 1:
@@ -1081,8 +1092,11 @@ def main():
                                             unsafe_allow_html=True
                                         )
 
-                                if sleep_time > 0:
-                                    time.sleep(sleep_time)
+                                # Smooth 30 FPS pacing to eliminate WebSocket congestion and video feed latency
+                                target_dt = 1.0 / 30.0
+                                elapsed = time.perf_counter() - loop_start
+                                if elapsed < target_dt:
+                                    time.sleep(target_dt - elapsed)
 
                         except Exception as loop_err:
                             st.error(f"❌ Real-time camera processing error: {loop_err}")
