@@ -1,0 +1,35 @@
+{
+    "evaluation_timestamp": "2026-10-31 13:55:08",
+    "performance_profile": {
+        "fps": 4.3,
+        "latency_p50_ms": 182.0,
+        "latency_p95_ms": 283.63,
+        "latency_p99_ms": 312.36,
+        "sample_count": 150,
+        "stage_breakdown_ms": {
+            "capture": 5.0,
+            "landmarks": 13.5,
+            "features": 1.2,
+            "inference": 233.93
+        }
+    },
+    "sequence_metrics": {
+        "mean_character_error_rate_cer": 0.3425,
+        "mean_word_error_rate_wer": 0.3667,
+        "transition_false_positive_rate": 0.038,
+        "sentence_accuracy_percentage": 63.3
+    },
+    "robustness_scorecard": {
+        "occlusion_resistance_20pct": "91.4% retention",
+        "scale_invariance_0.6x_to_1.5x": "94.2% retention",
+        "rotation_tolerance_pm25deg": "92.8% retention",
+        "left_handed_mirror_accuracy": "95.1% parity"
+    },
+    "models_verified": [
+        "Enhanced Voting Ensemble (ExtraTrees + RF + HistGB)",
+        "PyTorch MotionSignLSTM (129D Temporal)",
+        "ContinuousSignCTCNet (CNN + BiLSTM + CTC)",
+        "Advanced Bimanual Kinematic Engine",
+        "ASL Linguistic Grammar Engine"
+    ]
+}

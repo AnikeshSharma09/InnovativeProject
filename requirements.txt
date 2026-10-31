@@ -11,6 +11,11 @@ opencv-python>=4.8.0
 mediapipe==0.10.14
 pillow>=10.0.0
 
+# Real-Time CPU Inference Acceleration & Serialization
+protobuf>=4.25.3,<5
+onnx>=1.16.0,<1.17.0
+onnxruntime>=1.16.0
+
 # Visualization & Evaluation
 matplotlib>=3.7.0
 seaborn>=0.12.0

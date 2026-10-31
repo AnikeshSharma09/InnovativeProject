@@ -9,6 +9,13 @@ Supports:
 """
 import time
 from typing import List, Tuple, Dict, Optional
+import sys
+import os
+
+# Ensure project root is accessible
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.asl_grammar import ASLGrammarTranslator, ASLGlossToken
+from utils.personalization import PersonalVocabularyManager
 
 
 # Professional Workplace & General English Dictionary for Autocorrect & Suggestions
@@ -91,6 +98,10 @@ class EnterpriseSentenceEngine:
         
         # Word frequency cache
         self.vocab = set(ENTERPRISE_DICTIONARY)
+        self.grammar_translator = ASLGrammarTranslator()
+        self.vocab_manager = PersonalVocabularyManager()
+        for w in self.vocab_manager.get_all_vocabulary():
+            self.vocab.add(w)
 
     def reset(self):
         """Clears current active sentence."""
@@ -208,6 +219,30 @@ class EnterpriseSentenceEngine:
 
         # Capitalize sentence
         return raw_str[0].upper() + raw_str[1:] if len(raw_str) > 1 else raw_str.upper()
+
+    def get_translated_sentence(self) -> str:
+        """Translates accumulated ASL glosses into a grammatically natural English sentence."""
+        if not self.committed_words:
+            return ""
+        tokens = [ASLGlossToken(gloss=w) for w in self.committed_words]
+        res = self.grammar_translator.translate_gloss_sequence(tokens)
+        return res.english_translation
+
+    def delete_last_word(self) -> Optional[str]:
+        """Deletes the last committed word from active sentence and transcript."""
+        if self.committed_words:
+            removed = self.committed_words.pop()
+            if self.meeting_transcript:
+                self.meeting_transcript.pop()
+            return removed
+        return None
+
+    def add_custom_personal_word(self, word: str) -> bool:
+        """Adds custom word or name to personal dictionary and active vocabulary."""
+        success = self.vocab_manager.add_custom_word(word)
+        if success:
+            self.vocab.add(word.strip().upper())
+        return success
 
     def get_autocorrect_suggestions(self, word: Optional[str] = None, max_suggestions: int = 3) -> List[Tuple[str, int]]:
         """

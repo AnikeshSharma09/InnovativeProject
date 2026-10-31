@@ -18,7 +18,7 @@ import warnings
 warnings.filterwarnings("ignore")
 import time
 from typing import Optional, List, Tuple, Dict, Any, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import deque, Counter
 from pathlib import Path
 import cv2
@@ -31,6 +31,7 @@ import torch
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from models.lstm_model import MotionSignLSTM, load_lstm_checkpoint
+from utils.onnx_exporter import ONNXModelSession
 from utils.landmarks_util import (
     extract_motion_frame_data,
     extract_motion_features,
@@ -76,6 +77,7 @@ class PredictionOutput:
     left_hand_proto: Optional[object] = None
     right_hand_proto: Optional[object] = None
     dual_result: Optional[DualHandDetectionResult] = None
+    top3_candidates: List[Tuple[str, float]] = field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -149,6 +151,15 @@ class SignPredictor:
         self.wlasl_encoder = None
         self.wlasl_classes: List[str] = []
         self._load_models()
+
+        # ONNX Runtime Acceleration
+        self.onnx_lstm_path = Path("models/sign_lstm.onnx")
+        self.onnx_session: Optional[ONNXModelSession] = None
+        if self.onnx_lstm_path.exists():
+            try:
+                self.onnx_session = ONNXModelSession(str(self.onnx_lstm_path))
+            except Exception:
+                self.onnx_session = None
 
         # Initialize MediaPipe Hands supporting up to 2 hands (Dual Hand / Bimanual)
         self.mp_hands = mp.solutions.hands
@@ -614,10 +625,14 @@ class SignPredictor:
                 frames.insert(0, frames[0])
 
             seq_array = np.array(frames, dtype=np.float32).reshape(1, self.sequence_length, TOTAL_MOTION_FEATURES)
-            seq_tensor = torch.tensor(seq_array, dtype=torch.float32).to(self.device)
-            probs_tensor = self.lstm_model.predict_probabilities(seq_tensor)[0]
-            probs = probs_tensor.cpu().numpy()
-            model_used_name = "Deep LSTM (Motion)"
+            if self.onnx_session is not None and self.onnx_session.is_ready:
+                probs = self.onnx_session.predict_probabilities(seq_array)
+                model_used_name = "Deep LSTM (ONNX Runtime)"
+            else:
+                seq_tensor = torch.tensor(seq_array, dtype=torch.float32).to(self.device)
+                probs_tensor = self.lstm_model.predict_probabilities(seq_tensor)[0]
+                probs = probs_tensor.cpu().numpy()
+                model_used_name = "Deep LSTM (Motion)"
         else:
             spatial_feat = np.array(motion_vec[:63]).reshape(1, -1)
             probs = self.rf_model.predict_proba(spatial_feat)[0]
@@ -635,6 +650,7 @@ class SignPredictor:
         sorted_indices = np.argsort(probs)[::-1]
         top1_idx = int(sorted_indices[0])
         top2_idx = int(sorted_indices[1]) if len(sorted_indices) > 1 else top1_idx
+        top3_list = [(self.classes[idx], float(probs[idx])) for idx in sorted_indices[:3]]
 
         raw_label = self.classes[top1_idx]
         top1_prob = float(probs[top1_idx])
@@ -700,7 +716,8 @@ class SignPredictor:
             is_two_handed=dual_res.is_bimanual,
             left_hand_proto=dual_res.left_hand_proto,
             right_hand_proto=dual_res.right_hand_proto,
-            dual_result=dual_res
+            dual_result=dual_res,
+            top3_candidates=top3_list
         )
 
     def predict_image(
@@ -755,10 +772,11 @@ class SignPredictor:
         if disambig_note:
             model_name += f" [{disambig_note}]"
 
-        top_idx = int(np.argmax(probs))
+        sorted_indices = np.argsort(probs)[::-1]
+        top_idx = int(sorted_indices[0])
         top_prob = float(probs[top_idx])
-        sorted_probs = np.sort(probs)[::-1]
-        margin = top_prob - (sorted_probs[1] if len(sorted_probs) > 1 else 0.0)
+        margin = top_prob - (float(probs[sorted_indices[1]]) if len(sorted_indices) > 1 else 0.0)
+        top3_list = [(self.classes[idx], float(probs[idx])) for idx in sorted_indices[:3]]
 
         label = self.classes[top_idx]
         is_uncertain = (top_prob < self.min_confidence) or (margin < 0.02)
@@ -778,7 +796,8 @@ class SignPredictor:
             is_stable=True,
             stable_label=label if not is_uncertain else None,
             hand_landmarks_proto=hand_landmarks,
-            status_message=f"Detected via '{stage_name}' stage, classified by {model_name}."
+            status_message=f"Detected via '{stage_name}' stage, classified by {model_name}.",
+            top3_candidates=top3_list
         )
         return output, annotated_image
 
