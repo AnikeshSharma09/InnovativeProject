@@ -438,3 +438,7 @@ class AdvancedBimanualEngine:
             )
 
         return None
+
+
+# Backward-compatible alias
+BimanualEngine = AdvancedBimanualEngine

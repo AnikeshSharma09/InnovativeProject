@@ -69,7 +69,7 @@ def test_autocorrect_and_autocomplete():
 
 def test_phrase_recognition():
     print("\n--- [3] Testing Whole-Sentence Biomechanical Recognition ---")
-    recognizer = EnterprisePhraseRecognizer(history_len=20)
+    recognizer = EnterprisePhraseRecognizer(history_len=20, enable_single_hand_macros=True)
     
     # Construct synthetic "APPROVED / GOOD JOB" (thumbs-up: thumb extended, other fingers curled)
     # 21 points: wrist=(0.5, 0.8, 0.0), thumb_tip=(0.5, 0.4, 0.0), others near wrist
