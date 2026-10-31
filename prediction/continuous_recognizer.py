@@ -167,13 +167,20 @@ class ContinuousSignRecognizer:
         self.frame_counter += 1
         h, w, _ = frame_bgr.shape
 
-        # Step 1: MediaPipe Holistic Inference
-        rgb_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        # Step 1: MediaPipe Holistic Inference with fast perception scaling (60+ FPS)
+        infer_w = 480
+        if w > infer_w:
+            scale = infer_w / float(w)
+            small_bgr = cv2.resize(frame_bgr, (infer_w, int(h * scale)), interpolation=cv2.INTER_NEAREST)
+            rgb_frame = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2RGB)
+        else:
+            rgb_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
         rgb_frame.flags.writeable = False
         holistic_res = self.holistic.process(rgb_frame)
         rgb_frame.flags.writeable = True
 
-        # Step 2: Multimodal Feature Extraction
+        # Step 2: Multimodal Feature Extraction (mapped to original h, w dimensions)
         m_data = self.feature_extractor.extract_from_holistic(holistic_res, (h, w, 3))
 
         # Check for immediate two-handed sign

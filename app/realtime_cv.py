@@ -30,6 +30,7 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from prediction.predictor import SignPredictor
+from prediction.camera_manager import open_robust_camera, release_camera_safely
 from utils.landmarks_util import draw_styled_landmarks, draw_dual_styled_landmarks
 from utils.labels import format_label_for_display
 from utils.speech import speak_text
@@ -75,14 +76,22 @@ def run_realtime_application(
         print("Please train the LSTM model first: python training/train_lstm.py")
         return
 
-    cap = cv2.VideoCapture(camera_index)
-    if not cap.isOpened():
+    cap, actual_cam_idx, b_name, notif = open_robust_camera(requested_index=camera_index)
+    if cap is None:
         print(f"\n[!] ERROR: Could not access webcam at index {camera_index}.")
         print("Check your camera connection or try '--camera 1'.")
         return
+    if notif:
+        print(f"[*] {notif}")
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    try:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FPS, 60)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    except Exception:
+        pass
 
     sentence_engine = EnterpriseSentenceEngine()
     current_stable_streak = 0
@@ -310,9 +319,8 @@ def run_realtime_application(
                     print("[!] No text to speak.")
 
     finally:
-        cap.release()
+        release_camera_safely(cap)
         predictor.close()
-        cv2.destroyAllWindows()
         print("\n[*] Application terminated cleanly.")
 
 
