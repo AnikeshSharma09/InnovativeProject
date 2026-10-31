@@ -1068,7 +1068,7 @@ def main():
         st.subheader("🖼️ High-Precision Gesture Image Analysis & Multi-Dataset Explorer")
         st.markdown(
             "Test hand landmark detection, 1€ anti-shiver stabilization, and sign classification on any uploaded image "
-            "or explore across available datasets (**ASL Alphabet**, **WLASL 2000 Words**, and **MS-ASL**)."
+            "or explore samples from the **ASL Alphabet** dataset."
         )
 
         dataset_dir = Path("dataset")
@@ -1077,13 +1077,9 @@ def main():
         if not dataset_dir.exists():
             dataset_dir = Path("archive/asl_alphabet_test/asl_alphabet_test")
 
-        wlasl_dir = Path("archive/wlasl")
-
         tab2_col_mode, tab2_col_model = st.columns(2)
         with tab2_col_mode:
             options_source = ["📁 Upload Image from Computer", "📦 Select Sample from ASL Alphabet (39 Classes: 0-9, A-Z)"]
-            if wlasl_dir.exists():
-                options_source.append("📚 Explore WLASL Word Dataset (2,000 Sign Words)")
 
             image_source = st.radio(
                 "Select Image / Dataset Source:",
@@ -1118,140 +1114,6 @@ def main():
                             st.error("Could not decode uploaded image format. Please try another image file.")
                 except Exception as ex:
                     st.error(f"Error reading uploaded file: {ex}")
-        elif "WLASL Word Dataset" in image_source:
-            wlasl_json_path = wlasl_dir / "WLASL_v0.3.json"
-            v_dir = wlasl_dir / "videos"
-            trained_words = getattr(predictor, "wlasl_classes", []) if predictor else []
-            if not trained_words:
-                trained_words = ["accident", "bed", "before", "call", "candy", "change", "cold", "computer", "cool", "cousin", "drink", "go", "help", "later", "man", "no", "play", "shirt", "short", "tall", "thin", "walk", "what", "who", "work", "yes"]
-
-            st.markdown("### 🎬 WLASL Video Sign Recognition & Explorer")
-            st.info(f"📚 **WLASL Word Dataset:** {len(trained_words)} trained vocabulary words (from 11,980 video clips in `archive/wlasl/videos/`).")
-
-            wlasl_mode = st.radio(
-                "Select Video Source:",
-                options=["🎞️ Browse & Test Pre-recorded Vocabulary Video Clips", "📤 Upload Custom Sign Video (.MP4 / .MOV / .AVI)"],
-                horizontal=True
-            )
-
-            if wlasl_mode == "🎞️ Browse & Test Pre-recorded Vocabulary Video Clips":
-                c_w1, c_w2 = st.columns([1, 1])
-                with c_w1:
-                    selected_word = st.selectbox(
-                        "1. Choose Vocabulary Word to Test:",
-                        options=sorted(trained_words),
-                        index=0,
-                        format_func=lambda w: f"{w.upper()} ({w})"
-                    )
-
-                matched_video_paths = []
-                if wlasl_json_path.exists():
-                    try:
-                        with open(wlasl_json_path, "r", encoding="utf-8") as f:
-                            wlasl_data = json.load(f)
-                        for item in wlasl_data:
-                            if item["gloss"].lower() == selected_word.lower():
-                                for inst in item["instances"]:
-                                    vid_id = inst["video_id"]
-                                    p = v_dir / f"{vid_id}.mp4"
-                                    if p.exists() and p.stat().st_size > 1000:
-                                        matched_video_paths.append((vid_id, p))
-                                break
-                    except Exception as e:
-                        st.warning(f"Could not load WLASL index: {e}")
-
-                with c_w2:
-                    if matched_video_paths:
-                        chosen_vid_tuple = st.selectbox(
-                            f"2. Choose Sample Video ({len(matched_video_paths)} available):",
-                            options=matched_video_paths,
-                            format_func=lambda tup: f"Video ID: {tup[0]}.mp4 ({tup[1].stat().st_size // 1024} KB)"
-                        )
-                        test_video_path = chosen_vid_tuple[1]
-                    else:
-                        st.warning(f"No video files found on disk for '{selected_word}'.")
-                        test_video_path = None
-
-                if test_video_path and test_video_path.exists():
-                    v_col1, v_col2 = st.columns([1, 1])
-                    with v_col1:
-                        st.subheader("🎥 Source Video Clip")
-                        st.video(str(test_video_path))
-                        run_btn = st.button("⚡ Run AI Sign Language Recognition on this Clip", type="primary", use_container_width=True)
-
-                    if run_btn and predictor is not None:
-                        with st.spinner("Extracting kinematics and evaluating WLASL Model..."):
-                            v_res = predictor.predict_video(test_video_path)
-
-                        with v_col2:
-                            st.subheader("🔍 Prediction Results")
-                            if v_res["success"]:
-                                pred_word = v_res["predicted_word"]
-                                conf = v_res["confidence_score"]
-                                is_match = (pred_word.lower() == selected_word.lower())
-
-                                if is_match:
-                                    st.success(f"🎯 **PERFECT MATCH:** Predicted **{pred_word}** ({conf:.1f}% confidence)")
-                                else:
-                                    st.info(f"🤖 **Top Prediction:** **{pred_word}** ({conf:.1f}% confidence)")
-
-                                st.markdown("##### 📊 Top 3 Candidate Predictions")
-                                for c_idx, (cand_word, cand_prob) in enumerate(v_res["top3_candidates"]):
-                                    st.write(f"**#{c_idx+1}: {cand_word}** ({cand_prob:.1%})")
-                                    st.progress(min(1.0, float(cand_prob)))
-
-                                if v_res["annotated_keyframe"] is not None:
-                                    st.image(
-                                        cv2.cvtColor(v_res["annotated_keyframe"], cv2.COLOR_BGR2RGB),
-                                        caption="Extracted Keyframe with 21 MediaPipe Hand Landmarks",
-                                        use_container_width=True
-                                    )
-                            else:
-                                st.error(f"Prediction failed: {v_res['error_message']}")
-
-            else:
-                uploaded_video = st.file_uploader(
-                    "Choose an MP4, MOV, or AVI video clip to recognize:",
-                    type=["mp4", "mov", "avi"],
-                    key="custom_video_uploader"
-                )
-                if uploaded_video is not None:
-                    temp_dir = Path("data")
-                    temp_dir.mkdir(parents=True, exist_ok=True)
-                    temp_path = temp_dir / "temp_eval_video.mp4"
-                    with open(temp_path, "wb") as f:
-                        f.write(uploaded_video.getvalue())
-
-                    uv_col1, uv_col2 = st.columns([1, 1])
-                    with uv_col1:
-                        st.subheader("🎥 Uploaded Video")
-                        st.video(str(temp_path))
-                        run_up_btn = st.button("⚡ Run AI Sign Language Recognition on Uploaded Video", type="primary", use_container_width=True)
-
-                    if run_up_btn and predictor is not None:
-                        with st.spinner("Extracting kinematics and predicting word gesture..."):
-                            v_res = predictor.predict_video(temp_path)
-
-                        with uv_col2:
-                            st.subheader("🔍 Prediction Results")
-                            if v_res["success"]:
-                                pred_word = v_res["predicted_word"]
-                                conf = v_res["confidence_score"]
-                                st.success(f"🤖 **Predicted Sign Word:** **{pred_word}** ({conf:.1f}%)")
-
-                                st.markdown("##### 📊 Top 3 Candidates")
-                                for c_idx, (cand_word, cand_prob) in enumerate(v_res["top3_candidates"]):
-                                    st.write(f"**#{c_idx+1}: {cand_word}** ({cand_prob:.1%})")
-                                    st.progress(min(1.0, float(cand_prob)))
-
-                                if v_res["annotated_keyframe"] is not None:
-                                    st.image(
-                                        cv2.cvtColor(v_res["annotated_keyframe"], cv2.COLOR_BGR2RGB),
-                                        caption="Extracted Keyframe with 21 MediaPipe Hand Landmarks",
-                                        use_container_width=True
-                                    )
-                            else:
-                                st.error(f"Prediction failed: {v_res['error_message']}")
         else:
             if dataset_dir.exists() and dataset_dir.is_dir():
                 subdirs = sorted([d.name for d in dataset_dir.iterdir() if d.is_dir() and d.name.lower() != "asl_dataset"])
