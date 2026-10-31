@@ -169,8 +169,8 @@ class SignPredictor:
             static_image_mode=False,
             max_num_hands=2,
             model_complexity=0,
-            min_detection_confidence=0.35,
-            min_tracking_confidence=0.35
+            min_detection_confidence=0.25,
+            min_tracking_confidence=0.25
         )
 
     @property
@@ -714,29 +714,6 @@ class SignPredictor:
         top1_prob = float(probs[top1_idx])
         top2_prob = float(probs[top2_idx])
         margin = top1_prob - top2_prob
-
-        # Confidence-Triggered Robust Recovery (recovers edge-of-frame, close-up, or harsh lighting landmarks)
-        if (top1_prob < 0.50 or margin < 0.15) and self.rf_model is not None:
-            f_rob, p_rob_proto, c_rob, rob_stage = robust_extract_landmarks_from_bgr_frame(bgr_frame, self.hands_detector)
-            if f_rob is not None:
-                p_rob = self.rf_model.predict_proba(np.array(f_rob).reshape(1, 63))[0]
-                rob_top1 = int(np.argmax(p_rob))
-                rob_prob = float(p_rob[rob_top1])
-                if rob_prob > top1_prob:
-                    probs = p_rob
-                    sorted_indices = np.argsort(probs)[::-1]
-                    top1_idx = int(sorted_indices[0])
-                    top2_idx = int(sorted_indices[1]) if len(sorted_indices) > 1 else top1_idx
-                    top3_list = [(self.classes[idx], float(probs[idx])) for idx in sorted_indices[:3]]
-                    raw_label = self.classes[top1_idx]
-                    top1_prob = float(probs[top1_idx])
-                    top2_prob = float(probs[top2_idx])
-                    margin = top1_prob - top2_prob
-                    model_used_name += f" [Robust: {rob_stage}]"
-                    if c_rob is not None:
-                        active_coords = c_rob
-                    if p_rob_proto is not None:
-                        primary_proto = p_rob_proto
 
         # Confidence Evaluation
         if top1_prob >= 0.60 and margin >= self.min_margin:

@@ -125,23 +125,21 @@ def train_ctc_model(
     batch_size: int = 16,
     lr: float = 0.001,
     feature_dim: int = 210,
-    num_classes: int = 65,
+    num_classes: int = 39,
     output_path: str = "models/continuous_ctc.pth"
 ):
     print(f"[*] Initializing Continuous CTC Model Training (Feature Dim: {feature_dim}, Classes: {num_classes})...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[*] Training Device: {device}")
 
-    # Standard default vocabulary: 39 alphabet/digits + 26 WLASL words
+    # Standard default vocabulary: 39 alphabet/digits base signs (No whole words)
     classes = [
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
         "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
         "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
-        "U", "V", "W", "X", "Y", "Z", "del", "nothing", "space",
-        "ACCIDENT", "BED", "BEFORE", "CALL", "CANDY", "CHANGE", "COLD", "COMPUTER",
-        "COOL", "COUSIN", "DRINK", "GO", "HELP", "LATER", "MAN", "NO", "PLAY",
-        "SHIRT", "SHORT", "TALL", "THIN", "WALK", "WHAT", "WHO", "WORK", "YES"
+        "U", "V", "W", "X", "Y", "Z", "del", "nothing", "space"
     ]
+    num_classes = len(classes)
 
     dataset = SyntheticContinuousSignDataset(
         num_samples=400,
@@ -202,4 +200,4 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="models/continuous_ctc.pth", help="Model checkpoint path")
     args = parser.parse_args()
 
-    train_ctc_model(epochs=args.epochs, batch_size=args.batch_size, output_path=args.output)
+    train_ctc_model(epochs=args.epochs, batch_size=args.batch_size, num_classes=39, output_path=args.output)

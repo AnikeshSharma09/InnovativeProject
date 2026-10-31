@@ -165,17 +165,12 @@ def create_or_load_ctc_model(
     """
     path = Path(checkpoint_path)
 
-    # Standard default vocabulary: 39 alphabet/digits + 26 WLASL words = 65 classes
+    # Standard default vocabulary: 39 alphabet/digits base signs (Words removed as requested)
     default_classes = [
-        # 39 Standard Base Signs
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
         "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
         "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
-        "U", "V", "W", "X", "Y", "Z", "del", "nothing", "space",
-        # 26 WLASL Words
-        "ACCIDENT", "BED", "BEFORE", "CALL", "CANDY", "CHANGE", "COLD", "COMPUTER",
-        "COOL", "COUSIN", "DRINK", "GO", "HELP", "LATER", "MAN", "NO", "PLAY",
-        "SHIRT", "SHORT", "TALL", "THIN", "WALK", "WHAT", "WHO", "WORK", "YES"
+        "U", "V", "W", "X", "Y", "Z", "del", "nothing", "space"
     ]
     target_classes = classes if classes is not None else default_classes
 

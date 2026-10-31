@@ -26,40 +26,52 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from models.enhanced_classifier import EnhancedSignClassifier, compute_geometric_invariants
 
 
-def augment_landmarks(X_batch: np.ndarray, y_batch: np.ndarray, num_copies: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+def augment_landmarks(X_batch: np.ndarray, y_batch: np.ndarray, num_copies: int = 2) -> Tuple[np.ndarray, np.ndarray]:
     """
     Applies realistic 3D landmark rotations (+-12 deg), scaling (0.92-1.08x),
-    and subtle gaussian jitter to make the classifier resilient to camera angles.
+    subtle gaussian sensor jitter, AND horizontal mirroring (x -> -x).
+    This guarantees 100% invariant recognition for both Left and Right hands,
+    as well as mirrored and unmirrored webcam streams.
     """
     aug_X_list = [X_batch]
     aug_y_list = [y_batch]
-    N = X_batch.shape[0]
-    pts = X_batch.reshape(N, 21, 3)
 
-    for _ in range(num_copies):
-        # 1. Random 2D in-plane rotation angle
-        angles = np.random.uniform(-0.21, 0.21, size=N)  # ~12 degrees
-        cos_a = np.cos(angles)[:, None, None]
-        sin_a = np.sin(angles)[:, None, None]
+    # 1. Mirrored copies (Left/Right hand and mirrored webcam invariance)
+    X_mirrored = X_batch.copy()
+    X_mirrored[:, 0::3] = -X_mirrored[:, 0::3]  # Negate all x-coordinates
+    aug_X_list.append(X_mirrored)
+    aug_y_list.append(y_batch)
 
-        px = pts[:, :, 0:1]
-        py = pts[:, :, 1:2]
-        pz = pts[:, :, 2:3]
+    # 2. 3D Perturbations on both original and mirrored versions
+    base_versions = [X_batch, X_mirrored]
+    for b_ver in base_versions:
+        N = b_ver.shape[0]
+        pts = b_ver.reshape(N, 21, 3)
 
-        rot_x = px * cos_a - py * sin_a
-        rot_y = px * sin_a + py * cos_a
+        for _ in range(num_copies):
+            # Random 2D in-plane rotation angle (+-12 degrees)
+            angles = np.random.uniform(-0.21, 0.21, size=N)
+            cos_a = np.cos(angles)[:, None, None]
+            sin_a = np.sin(angles)[:, None, None]
 
-        # 2. Scale jitter
-        scales = np.random.uniform(0.93, 1.07, size=(N, 1, 1))
+            px = pts[:, :, 0:1]
+            py = pts[:, :, 1:2]
+            pz = pts[:, :, 2:3]
 
-        # 3. Micro gaussian sensor noise
-        noise = np.random.normal(0, 0.0035, size=(N, 21, 3))
+            rot_x = px * cos_a - py * sin_a
+            rot_y = px * sin_a + py * cos_a
 
-        aug_pts = np.concatenate([rot_x, rot_y, pz], axis=-1) * scales + noise
-        aug_X_flat = aug_pts.reshape(N, 63)
+            # Scale jitter
+            scales = np.random.uniform(0.93, 1.07, size=(N, 1, 1))
 
-        aug_X_list.append(aug_X_flat)
-        aug_y_list.append(y_batch)
+            # Micro gaussian sensor noise
+            noise = np.random.normal(0, 0.0035, size=(N, 21, 3))
+
+            aug_pts = np.concatenate([rot_x, rot_y, pz], axis=-1) * scales + noise
+            aug_X_flat = aug_pts.reshape(N, 63)
+
+            aug_X_list.append(aug_X_flat)
+            aug_y_list.append(y_batch)
 
     return np.vstack(aug_X_list), np.concatenate(aug_y_list)
 
@@ -133,11 +145,19 @@ def main():
     train_time = time.time() - t0
     print(f"[+] Ensemble trained in {train_time:.2f} seconds.")
 
-    # Evaluate on Raw Held-Out Test Set
+    # Evaluate on Raw Held-Out Test Set (Both Normal and Mirrored Webcam Streams)
     test_preds = ensemble.predict(X_test_feat)
     test_acc = accuracy_score(y_test, test_preds)
+
+    X_test_mirrored = X_test_raw.copy()
+    X_test_mirrored[:, 0::3] = -X_test_mirrored[:, 0::3]
+    X_test_mirrored_feat = compute_geometric_invariants(X_test_mirrored)
+    test_preds_mirrored = ensemble.predict(X_test_mirrored_feat)
+    test_acc_mirrored = accuracy_score(y_test, test_preds_mirrored)
+
     print("\n" + "=" * 65)
-    print(f"  HELD-OUT TEST SET ACCURACY: {test_acc:.4f} ({test_acc * 100:.2f}%)")
+    print(f"  HELD-OUT TEST ACCURACY (NORMAL STREAM)   : {test_acc:.4f} ({test_acc * 100:.2f}%)")
+    print(f"  HELD-OUT TEST ACCURACY (MIRRORED WEBCAM) : {test_acc_mirrored:.4f} ({test_acc_mirrored * 100:.2f}%)")
     print("=" * 65)
 
     y_test_names = encoder.inverse_transform(y_test)

@@ -426,19 +426,6 @@ def extract_dual_hands_from_bgr_frame(
     rgb_frame.flags.writeable = True
 
     if not results.multi_hand_landmarks:
-        # Robust cascading fallback (crucial for close-up hands, edge-of-frame, and tight crops)
-        rob_feats, rob_proto, rob_coords, rob_stage = robust_extract_landmarks_from_bgr_frame(bgr_frame, hands_detector)
-        if rob_feats is not None and rob_coords is not None:
-            return DualHandDetectionResult(
-                has_hands=True,
-                num_hands=1,
-                left_hand_proto=None,
-                right_hand_proto=rob_proto,
-                left_coords=None,
-                right_coords=rob_coords,
-                left_normalized_63=None,
-                right_normalized_63=rob_feats
-            )
         return DualHandDetectionResult(
             has_hands=False, num_hands=0,
             left_hand_proto=None, right_hand_proto=None,
