@@ -107,7 +107,8 @@ class SignPredictor:
         enable_stabilization: bool = True,
         stabilizer_min_cutoff: float = 0.8,
         stabilizer_beta: float = 0.015,
-        device: str = "cpu"
+        device: str = "cpu",
+        enable_word_signs: bool = False
     ):
         self.lstm_model_path = Path(lstm_model_path)
         self.encoder_path = Path(encoder_path)
@@ -120,6 +121,7 @@ class SignPredictor:
         self.engine_mode = engine_mode  # 'auto', 'rf', 'lstm'
         self.device = torch.device(device)
         self.enable_stabilization = enable_stabilization
+        self.enable_word_signs = enable_word_signs
 
         # Biomechanical Stabilizers (One-Euro Filter across Left and Right hands)
         self.landmark_stabilizer = LandmarkStabilizer(
@@ -480,49 +482,50 @@ class SignPredictor:
             jitter_score = 0.0
             is_shivering = False
 
-        # Step 3: Evaluate Whole-Sentence & Two-Handed (Bimanual) Signs
-        phrase_result = self.phrase_recognizer.update(
-            coords=active_coords,
-            kinetic_energy=kinetic_energy,
-            left_coords=stab_left,
-            right_coords=stab_right,
-            wrist_dist=dual_res.wrist_dist,
-            index_dist=dual_res.index_dist
-        )
-
-        if phrase_result is not None and phrase_result.is_phrase_detected:
-            self.prev_raw_coords = active_coords
-            self.sequence_buffer.append(motion_vec)
-            self.prediction_history.append(phrase_result.phrase_text)
-
-            m_state = "TWO-HANDED GESTURE" if phrase_result.is_bimanual else "WHOLE PHRASE GESTURE"
-            return PredictionOutput(
-                hand_detected=True,
-                predicted_label=phrase_result.phrase_id,
-                display_label=phrase_result.phrase_text,
-                confidence_level="HIGH",
-                confidence_score=round(phrase_result.confidence * 100.0, 1),
-                raw_probability=phrase_result.confidence,
-                margin=0.50,
-                kinetic_energy=round(kinetic_energy, 4),
-                motion_state=m_state,
-                buffer_fill=len(self.sequence_buffer),
-                is_uncertain=False,
-                is_stable=True,
-                stable_label=phrase_result.phrase_text,
-                hand_landmarks_proto=primary_proto,
-                status_message=f"Recognized {'Two-Handed' if phrase_result.is_bimanual else 'Single-Hand'} Sign: '{phrase_result.phrase_text}'",
-                is_shivering=is_shivering,
-                jitter_score=round(jitter_score, 6),
-                is_phrase=True,
-                phrase_text=phrase_result.phrase_text,
-                stabilized_coords=active_coords,
-                num_hands=dual_res.num_hands,
-                is_two_handed=phrase_result.is_bimanual,
-                left_hand_proto=dual_res.left_hand_proto,
-                right_hand_proto=dual_res.right_hand_proto,
-                dual_result=dual_res
+        # Step 3: Evaluate Whole-Sentence & Two-Handed (Bimanual) Signs (ONLY if word signs enabled)
+        if self.enable_word_signs:
+            phrase_result = self.phrase_recognizer.update(
+                coords=active_coords,
+                kinetic_energy=kinetic_energy,
+                left_coords=stab_left,
+                right_coords=stab_right,
+                wrist_dist=dual_res.wrist_dist,
+                index_dist=dual_res.index_dist
             )
+
+            if phrase_result is not None and phrase_result.is_phrase_detected:
+                self.prev_raw_coords = active_coords
+                self.sequence_buffer.append(motion_vec)
+                self.prediction_history.append(phrase_result.phrase_text)
+
+                m_state = "TWO-HANDED GESTURE" if phrase_result.is_bimanual else "WHOLE PHRASE GESTURE"
+                return PredictionOutput(
+                    hand_detected=True,
+                    predicted_label=phrase_result.phrase_id,
+                    display_label=phrase_result.phrase_text,
+                    confidence_level="HIGH",
+                    confidence_score=round(phrase_result.confidence * 100.0, 1),
+                    raw_probability=phrase_result.confidence,
+                    margin=0.50,
+                    kinetic_energy=round(kinetic_energy, 4),
+                    motion_state=m_state,
+                    buffer_fill=len(self.sequence_buffer),
+                    is_uncertain=False,
+                    is_stable=True,
+                    stable_label=phrase_result.phrase_text,
+                    hand_landmarks_proto=primary_proto,
+                    status_message=f"Recognized {'Two-Handed' if phrase_result.is_bimanual else 'Single-Hand'} Sign: '{phrase_result.phrase_text}'",
+                    is_shivering=is_shivering,
+                    jitter_score=round(jitter_score, 6),
+                    is_phrase=True,
+                    phrase_text=phrase_result.phrase_text,
+                    stabilized_coords=active_coords,
+                    num_hands=dual_res.num_hands,
+                    is_two_handed=phrase_result.is_bimanual,
+                    left_hand_proto=dual_res.left_hand_proto,
+                    right_hand_proto=dual_res.right_hand_proto,
+                    dual_result=dual_res
+                )
 
         # Update previous frame coordinates
         self.prev_raw_coords = active_coords
@@ -538,12 +541,11 @@ class SignPredictor:
         else:
             motion_state = "STATIC HOLD"
 
-        # Step 3.5: Evaluate Word-Level WLASL Signs during motion or when in word/hybrid mode
-        if self.wlasl_model is not None and (
-            self.engine_mode in ("wlasl", "hybrid") or 
-            (self.engine_mode == "auto" and (kinetic_energy > 0.008 or len(self.sequence_buffer) >= 8))
+        # Step 3.5: Evaluate Word-Level WLASL Signs (ONLY when word signs explicitly enabled AND in word/hybrid mode)
+        if self.enable_word_signs and self.wlasl_model is not None and (
+            self.engine_mode in ("wlasl", "hybrid")
         ):
-            min_thresh = 0.28 if self.engine_mode == "wlasl" else 0.35
+            min_thresh = 0.35 if self.engine_mode == "wlasl" else 0.50
             wlasl_res = self.predict_wlasl_word(min_confidence=min_thresh)
             if wlasl_res is not None:
                 word_label, word_prob = wlasl_res

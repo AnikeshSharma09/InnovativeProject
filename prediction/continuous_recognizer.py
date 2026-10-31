@@ -94,11 +94,13 @@ class ContinuousSignRecognizer:
         confidence_threshold: float = 0.40,
         enable_face_pose: bool = True,
         dominant_hand_preference: str = "Auto",
-        device: str = "cpu"
+        device: str = "cpu",
+        enable_word_signs: bool = False
     ):
         self.confidence_threshold = confidence_threshold
         self.enable_face_pose = enable_face_pose
         self.device = device
+        self.enable_word_signs = enable_word_signs
 
         # 1. Perception Engines
         self.mp_holistic = mp.solutions.holistic
@@ -183,9 +185,9 @@ class ContinuousSignRecognizer:
         # Step 2: Multimodal Feature Extraction (mapped to original h, w dimensions)
         m_data = self.feature_extractor.extract_from_holistic(holistic_res, (h, w, 3))
 
-        # Check for immediate two-handed sign
+        # Check for immediate two-handed sign (only if word signs enabled)
         bimanual_res: Optional[BimanualSignResult] = None
-        if m_data.num_hands == 2:
+        if self.enable_word_signs and m_data.num_hands == 2:
             bimanual_res = self.bimanual_engine.evaluate_bimanual_sign(
                 m_data.left_hand_landmarks,
                 m_data.right_hand_landmarks,
@@ -213,6 +215,13 @@ class ContinuousSignRecognizer:
             import torch
             seq_tensor = torch.from_numpy(segment.feature_sequence).unsqueeze(0).to(self.device)
             decoded_items = self.ctc_model.decode_greedy(seq_tensor, self.ctc_classes)
+
+            # If word signs are disabled, strictly restrict to alphabet & digits fingerspelling
+            if decoded_items and not self.enable_word_signs:
+                decoded_items = [
+                    (g, p) for (g, p) in decoded_items
+                    if len(g) == 1 or g.lower() in ("del", "nothing", "space")
+                ]
 
             if decoded_items:
                 top_gloss, top_prob = decoded_items[0]

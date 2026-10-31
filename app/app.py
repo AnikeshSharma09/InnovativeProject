@@ -280,7 +280,8 @@ def load_predictor():
             encoder_path="models/label_encoder.pkl",
             rf_model_path="models/sign_model.pkl",
             sequence_length=20,
-            enable_stabilization=True
+            enable_stabilization=True,
+            enable_word_signs=False
         )
     except FileNotFoundError:
         return None
@@ -340,7 +341,14 @@ def main():
                 help="Predictions below this threshold will be flagged as UNCERTAIN."
             )
 
+        enable_word_signs = st.checkbox(
+            "Enable Whole-Word Signs (WLASL & Phrases)",
+            value=False,
+            help="Disabled by default. When OFF, the system strictly recognizes individual fingerspelled letters (A-Z), numbers (0-9), and space/delete with 99.3% accuracy, preventing accidental whole-word detections."
+        )
+
         if not continuous_mode and predictor is not None:
+            predictor.enable_word_signs = enable_word_signs
             if predictor.lstm_model is not None and getattr(predictor, "has_rf_model", False):
                 st.success("🟢 Dual Base Engines: **PyTorch LSTM + Random Forest**")
             elif predictor.lstm_model is not None:
@@ -348,30 +356,48 @@ def main():
             else:
                 st.info("🟡 Baseline Model: **Random Forest**")
 
-            if hasattr(predictor, 'wlasl_classes') and predictor.wlasl_classes:
-                st.success(f"🎬 WLASL Word Engine: **{len(predictor.wlasl_classes)} Signs Active**")
+            if enable_word_signs:
+                if hasattr(predictor, 'wlasl_classes') and predictor.wlasl_classes:
+                    st.success(f"🎬 WLASL Word Engine: **{len(predictor.wlasl_classes)} Signs Active**")
 
-            # Engine selector
-            engine_choice = st.selectbox(
-                "Isolated Engine Mode",
-                options=[
-                    "Auto (Hybrid Motion/Static)",
-                    "Hybrid (Letters + Words + Sentences)",
-                    "WLASL Word-Level Signs (New Dataset)",
-                    "Random Forest (Alphabet & Digits 99.3%)",
-                    "Deep LSTM (Motion Trajectories)"
-                ],
-                index=0
-            )
-            mode_map = {
-                "Auto (Hybrid Motion/Static)": "auto",
-                "Hybrid (Letters + Words + Sentences)": "hybrid",
-                "WLASL Word-Level Signs (New Dataset)": "wlasl",
-                "Random Forest (Alphabet & Digits 99.3%)": "rf",
-                "Deep LSTM (Motion Trajectories)": "lstm"
-            }
+                engine_choice = st.selectbox(
+                    "Isolated Engine Mode",
+                    options=[
+                        "Auto (Random Forest Static + LSTM Dynamic)",
+                        "Random Forest (Alphabet & Digits 99.3%)",
+                        "Deep LSTM (39 Alphabet & Motion Classes)",
+                        "Hybrid (Letters + Words + Sentences)",
+                        "WLASL Word-Level Signs (26 Words)"
+                    ],
+                    index=0
+                )
+                mode_map = {
+                    "Auto (Random Forest Static + LSTM Dynamic)": "auto",
+                    "Random Forest (Alphabet & Digits 99.3%)": "rf",
+                    "Deep LSTM (39 Alphabet & Motion Classes)": "lstm",
+                    "Hybrid (Letters + Words + Sentences)": "hybrid",
+                    "WLASL Word-Level Signs (26 Words)": "wlasl"
+                }
+            else:
+                st.info("✋ Fingerspelling Mode: **A-Z, 0-9, Space & Del (No false words)**")
+                engine_choice = st.selectbox(
+                    "Isolated Engine Mode",
+                    options=[
+                        "Auto (Random Forest Static + LSTM Dynamic)",
+                        "Random Forest (Alphabet & Digits 99.3%)",
+                        "Deep LSTM (39 Alphabet & Motion Classes)"
+                    ],
+                    index=0
+                )
+                mode_map = {
+                    "Auto (Random Forest Static + LSTM Dynamic)": "auto",
+                    "Random Forest (Alphabet & Digits 99.3%)": "rf",
+                    "Deep LSTM (39 Alphabet & Motion Classes)": "lstm"
+                }
             predictor.engine_mode = mode_map[engine_choice]
         elif continuous_mode:
+            if crec is not None:
+                crec.enable_word_signs = enable_word_signs
             st.success("🌐 Continuous Stream: **CNN + BiLSTM + CTC (ONNX/Torch)**")
             st.info("🎭 Non-Manual: **Eyebrows, Eyes, Mouth & Head Pose**")
 
@@ -874,6 +900,7 @@ def main():
                                 if continuous_mode and crec is not None:
                                     crec.confidence_threshold = conf_threshold
                                     crec.bimanual_engine.dominant_hand = handedness_pref
+                                    crec.enable_word_signs = enable_word_signs
 
                                     c_res = crec.process_frame(frame)
                                     annotated_frame = crec.draw_multimodal_hud(frame, c_res)
@@ -941,6 +968,7 @@ def main():
                                 # PARADIGM 2: ISOLATED MOTION-AWARE (LSTM/RF)
                                 # =============================================
                                 elif predictor is not None:
+                                    predictor.enable_word_signs = enable_word_signs
                                     pred = predictor.predict_frame(frame)
 
                                     if pred.hand_detected:
@@ -952,8 +980,8 @@ def main():
                                     if pred.top3_candidates:
                                         st.session_state.active_top3 = pred.top3_candidates
 
-                                    # Whole-word / phrase detection
-                                    if pred.is_phrase and pred.phrase_text:
+                                    # Whole-word / phrase detection (ONLY when enable_word_signs is ON)
+                                    if getattr(predictor, "enable_word_signs", False) and pred.is_phrase and pred.phrase_text:
                                         if pred.phrase_text != last_rendered_phrase:
                                             engine.add_phrase(pred.phrase_text)
                                             if not st.session_state.disable_logging:
@@ -1023,7 +1051,7 @@ def main():
                                         badge_html = get_motion_badge_html(pred.motion_state, pred.is_uncertain, pred.is_shivering)
                                         metric_motion_box.markdown(f"**Kinetic State:** {badge_html} (Energy: `{pred.kinetic_energy:.3f}`)", unsafe_allow_html=True)
 
-                                        if pred.is_phrase and pred.phrase_text:
+                                        if getattr(predictor, "enable_word_signs", False) and pred.is_phrase and pred.phrase_text:
                                             icon = "🙌 2-HAND" if pred.is_two_handed else "✨ PHRASE"
                                             metric_phrase_box.markdown(f'<div class="badge-phrase">{icon}: {pred.phrase_text}</div>', unsafe_allow_html=True)
                                         else:
