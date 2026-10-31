@@ -15,15 +15,16 @@ import sys
 import time
 from typing import Dict, List, Optional, Tuple
 import cv2
+import numpy as np
 
 
 def get_platform_backends() -> List[Tuple[str, int]]:
     """Returns the ordered list of OpenCV video capture backends for the current OS."""
     if sys.platform.startswith("win"):
         return [
+            ("Default", cv2.CAP_ANY),
             ("DirectShow", cv2.CAP_DSHOW),
             ("MSMF", cv2.CAP_MSMF),
-            ("Default", cv2.CAP_ANY),
         ]
     elif sys.platform.startswith("darwin"):
         return [
@@ -39,7 +40,7 @@ def get_platform_backends() -> List[Tuple[str, int]]:
 
 def test_single_camera(index: int, backend_name: str, backend_api: int) -> Tuple[bool, Optional[Tuple[int, int]]]:
     """
-    Safely tests whether a camera index can be opened and successfully yields an image frame.
+    Safely tests whether a camera index can be opened and successfully yields an illuminated image frame.
     Returns (success, (width, height)).
     """
     cap = None
@@ -48,12 +49,13 @@ def test_single_camera(index: int, backend_name: str, backend_api: int) -> Tuple
         if not cap.isOpened():
             return False, None
 
-        # Warm-up attempts: some sensors take 100-300ms to initialize exposure
-        for _ in range(4):
+        # Warm-up attempts: verify image delivery and check that frame is not pitch-black zeros
+        for _ in range(5):
             ret, frame = cap.read()
             if ret and frame is not None and frame.size > 0:
-                h, w = frame.shape[:2]
-                return True, (w, h)
+                if float(np.mean(frame)) > 1.0 or float(np.std(frame)) > 1.0:
+                    h, w = frame.shape[:2]
+                    return True, (w, h)
             time.sleep(0.04)
 
         return False, None
@@ -137,40 +139,27 @@ def open_robust_camera(
                 if not cap.isOpened():
                     continue
 
-                # Configure high-FPS hardware camera properties (MJPG unlocks 30-60 FPS on USB/DirectShow)
+                # Hardware camera buffer configuration
                 try:
-                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    cap.set(cv2.CAP_PROP_FPS, 60)
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 except Exception:
                     pass
 
-                # Warm-up check: read frames to verify image delivery
+                # Warm-up check: verify real image delivery (not pure black 0-brightness frames)
                 delivered = False
                 for _ in range(5):
                     ret, test_frame = cap.read()
                     if ret and test_frame is not None and test_frame.size > 0:
-                        delivered = True
-                        break
-                    time.sleep(0.04)
-
-                if not delivered:
-                    # Retry cleanly without forced FourCC in case driver doesn't support MJPG
-                    cap.release()
-                    cap = cv2.VideoCapture(idx, b_api)
-                    for _ in range(5):
-                        ret, test_frame = cap.read()
-                        if ret and test_frame is not None and test_frame.size > 0:
+                        # Ensure frame has real light data (not black dummy frames caused by device locks)
+                        if float(np.mean(test_frame)) > 1.0 or float(np.std(test_frame)) > 1.0:
                             delivered = True
                             break
-                        time.sleep(0.04)
+                    time.sleep(0.04)
 
                 if delivered:
                     if idx != requested_index:
                         notification = (
-                            f"⚠️ Camera {requested_index} was offline or non-responsive (e.g. Windows Hello IR sensor). "
+                            f"⚠️ Camera {requested_index} was offline or non-responsive. "
                             f"Automatically switched to active Camera {idx} ({b_name})!"
                         )
                     return cap, idx, b_name, notification

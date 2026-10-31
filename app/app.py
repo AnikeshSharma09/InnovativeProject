@@ -508,9 +508,9 @@ def main():
         with c_cam2:
             backend_choice = st.selectbox(
                 "Capture Backend",
-                options=["Auto", "DirectShow", "MSMF", "Default"],
+                options=["Auto", "Default", "DirectShow", "MSMF"],
                 index=0,
-                help="Auto tests DirectShow then MSMF. DirectShow offers lowest latency on Windows."
+                help="Auto automatically tests Default then DirectShow. Default uses native Windows camera API with zero driver lockups."
             )
 
         c_fps, c_auto = st.columns([1, 1])
@@ -850,6 +850,7 @@ def main():
                         last_rendered_phrase = ""
                         frame_idx = 0
                         consecutive_dropped = 0
+                        black_frame_count = 0
 
                         is_turbo = "Turbo" in perf_mode or "60 FPS" in perf_mode
                         is_power_saver = "Power Saver" in perf_mode
@@ -877,6 +878,14 @@ def main():
                                         st.warning(f"Webcam (Camera {actual_cam_id}) stopped transmitting video frames.")
                                         break
                                 consecutive_dropped = 0
+
+                                # Check for physical lens shutter / black stream
+                                if float(np.mean(frame)) < 1.0 and float(np.std(frame)) < 1.0:
+                                    black_frame_count += 1
+                                    if black_frame_count == 10:
+                                        st.toast("⚠️ Camera image is black. Ensure physical lens cover is open, or switch Backend to 'Default' in sidebar.")
+                                else:
+                                    black_frame_count = 0
 
                                 frame_idx += 1
                                 frame = cv2.flip(frame, 1)
