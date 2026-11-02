@@ -462,24 +462,28 @@ class SignPredictor:
                 if "H" in self.classes:
                     h_idx = self.classes.index("H")
                     if probs[h_idx] < 0.70:
-                        probs[h_idx] = max(probs[h_idx] + 0.35, 0.85)
+                        probs = probs * 0.10
+                        probs[h_idx] = 0.88
                         probs = probs / np.sum(probs)
                         disambig_notes.append("Horizontal 2-finger parallel -> 'H'")
             elif not is_horizontal:
                 if d_im < 0.18 and "U" in self.classes:
                     u_idx = self.classes.index("U")
-                    probs[u_idx] = max(probs[u_idx], 0.80)
+                    probs = probs * 0.10
+                    probs[u_idx] = 0.85
                     probs = probs / np.sum(probs)
                 elif d_im >= 0.22 and "V" in self.classes:
                     v_idx_cls = self.classes.index("V")
-                    probs[v_idx_cls] = max(probs[v_idx_cls], 0.80)
+                    probs = probs * 0.10
+                    probs[v_idx_cls] = 0.85
                     probs = probs / np.sum(probs)
 
         if idx_ext and not mid_ext and not ring_ext and not pnk_ext and is_horizontal:
             if "G" in self.classes:
                 g_idx = self.classes.index("G")
                 if probs[g_idx] < 0.70:
-                    probs[g_idx] = max(probs[g_idx] + 0.35, 0.80)
+                    probs = probs * 0.10
+                    probs[g_idx] = 0.85
                     probs = probs / np.sum(probs)
                     disambig_notes.append("Horizontal index point -> 'G'")
 
@@ -491,6 +495,18 @@ class SignPredictor:
                 if probs[del_idx] > 0.05:
                     probs[del_idx] = 0.01
                     probs = probs / np.sum(probs)
+
+        # 11. ASL 'space' Horizontal Flat Hand Disambiguation
+        # In ASL Alphabet (Kaggle dataset), 'space' is signed with all 4 fingers extended horizontally parallel across chest
+        if idx_ext and mid_ext and ring_ext and pnk_ext:
+            if is_horizontal and d_im < 0.35 and d_mr < 0.35:
+                if "space" in self.classes:
+                    sp_idx = self.classes.index("space")
+                    if probs[sp_idx] < 0.70:
+                        probs = probs * 0.10
+                        probs[sp_idx] = 0.90
+                        probs = probs / np.sum(probs)
+                        disambig_notes.append("Horizontal 4-finger flat hand -> 'space'")
 
         note = "; ".join(disambig_notes) if disambig_notes else None
         return probs, note

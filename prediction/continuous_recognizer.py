@@ -243,19 +243,49 @@ class ContinuousSignRecognizer:
 
         # Step 5: Update Sentence Buffer if New Sign Emitted
         new_sign_flag = False
-        if emitted_gloss is not None and emitted_gloss not in ("del", "nothing", "space", "..."):
-            # Check non-manual facial cues active at moment of emission
-            token = ASLGlossToken(
-                gloss=emitted_gloss,
-                is_question=(m_data.face_cues.eyebrow_raise_left > 0.65 or m_data.face_cues.eyebrow_raise_right > 0.65),
-                is_wh_question=(m_data.face_cues.eyebrow_furrow > 0.50),
-                is_negated=(m_data.face_cues.is_head_shaking or emitted_gloss in ("NOT", "NO")),
-                is_emphasis=(m_data.face_cues.mouth_aperture > 0.35),
-                timestamp=time.time()
-            )
-            self.accumulated_gloss_tokens.append(token)
-            self._update_translation()
-            new_sign_flag = True
+        if emitted_gloss is not None and emitted_gloss not in ("nothing", "..."):
+            g_clean = emitted_gloss.lower()
+            if g_clean in ("space", "blank"):
+                # Handle space in continuous stream: merge trailing fingerspelled characters into a single word token
+                if self.accumulated_gloss_tokens:
+                    char_tokens = []
+                    while self.accumulated_gloss_tokens and len(self.accumulated_gloss_tokens[-1].gloss) == 1 and self.accumulated_gloss_tokens[-1].gloss.isalnum():
+                        char_tokens.append(self.accumulated_gloss_tokens.pop())
+                    if char_tokens:
+                        char_tokens.reverse()
+                        merged_word = "".join(t.gloss for t in char_tokens)
+                        last_t = char_tokens[-1]
+                        merged_token = ASLGlossToken(
+                            gloss=merged_word,
+                            is_question=last_t.is_question,
+                            is_wh_question=last_t.is_wh_question,
+                            is_negated=last_t.is_negated,
+                            is_emphasis=last_t.is_emphasis,
+                            timestamp=last_t.timestamp
+                        )
+                        self.accumulated_gloss_tokens.append(merged_token)
+                self._update_translation()
+                new_sign_flag = True
+                emitted_gloss = "SPACE"
+            elif g_clean in ("del", "delete", "backspace"):
+                if self.accumulated_gloss_tokens:
+                    removed = self.accumulated_gloss_tokens.pop()
+                    self._update_translation()
+                    new_sign_flag = True
+                    emitted_gloss = f"DEL ({removed.gloss})"
+            else:
+                # Check non-manual facial cues active at moment of emission
+                token = ASLGlossToken(
+                    gloss=emitted_gloss,
+                    is_question=(m_data.face_cues.eyebrow_raise_left > 0.65 or m_data.face_cues.eyebrow_raise_right > 0.65),
+                    is_wh_question=(m_data.face_cues.eyebrow_furrow > 0.50),
+                    is_negated=(m_data.face_cues.is_head_shaking or emitted_gloss in ("NOT", "NO")),
+                    is_emphasis=(m_data.face_cues.mouth_aperture > 0.35),
+                    timestamp=time.time()
+                )
+                self.accumulated_gloss_tokens.append(token)
+                self._update_translation()
+                new_sign_flag = True
 
         # Build non-manual textual summary
         non_manual_notes = []

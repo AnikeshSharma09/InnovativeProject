@@ -95,6 +95,7 @@ class EnterpriseSentenceEngine:
         # Timing trackers
         self.last_char_timestamp: float = time.time()
         self.last_committed_char: Optional[str] = None
+        self.has_trailing_space: bool = False
         
         # Word frequency cache
         self.vocab = set(ENTERPRISE_DICTIONARY)
@@ -109,33 +110,47 @@ class EnterpriseSentenceEngine:
         self.committed_words.clear()
         self.last_char_timestamp = time.time()
         self.last_committed_char = None
+        self.has_trailing_space = False
 
     def clear_all(self):
         """Clears both sentence and entire meeting transcript."""
         self.reset()
         self.meeting_transcript.clear()
 
-    def add_character(self, char: str) -> None:
+    def add_character(self, char: str) -> bool:
         """
         Processes a single recognized character or control sign.
         Handles: normal chars, 'space', 'del', 'nothing'.
+        Returns True if sentence state was modified.
         """
         now = time.time()
         self.last_char_timestamp = now
 
-        if char == "nothing":
-            return
+        if not char:
+            return False
 
-        if char == "space":
-            self.commit_current_word()
-            return
+        if str(char) in (" ", "  ", "\t"):
+            c_lower = "space"
+        else:
+            c_lower = str(char).strip().lower()
 
-        if char == "del":
+        if c_lower in ("nothing", "none", "uncertain gesture", "uncertain"):
+            return False
+
+        if c_lower in ("space", " ", "␣", "_", "blank"):
+            if self.current_word:
+                self.commit_current_word(autocorrect=True)
+            self.has_trailing_space = True
+            return True
+
+        if c_lower in ("del", "delete", "backspace"):
             self.backspace()
-            return
+            return True
 
         # Regular alphanumeric character
-        self.current_word += char.upper()
+        self.has_trailing_space = False
+        self.current_word += c_lower.upper()
+        return True
 
     def add_phrase(self, phrase: str) -> None:
         """
@@ -149,6 +164,7 @@ class EnterpriseSentenceEngine:
         clean_phrase = phrase.strip().upper()
         words = clean_phrase.split()
         self.committed_words.extend(words)
+        self.has_trailing_space = True
 
         # Log entry in meeting transcript
         entry_time = time.strftime("%H:%M:%S")
@@ -166,6 +182,7 @@ class EnterpriseSentenceEngine:
         applying intelligent typo autocorrection.
         """
         if not self.current_word:
+            self.has_trailing_space = True
             return None
 
         word = self.current_word.strip().upper()
@@ -180,6 +197,7 @@ class EnterpriseSentenceEngine:
 
         self.committed_words.append(final_word)
         self.current_word = ""
+        self.has_trailing_space = True
 
         # Update transcript
         entry_time = time.strftime("%H:%M:%S")
@@ -192,11 +210,15 @@ class EnterpriseSentenceEngine:
         return final_word
 
     def backspace(self) -> None:
-        """Deletes last typed character or last committed word."""
+        """Deletes last typed character, trailing space, or last committed word."""
+        if self.has_trailing_space:
+            self.has_trailing_space = False
+            return
         if self.current_word:
             self.current_word = self.current_word[:-1]
         elif self.committed_words:
             self.current_word = self.committed_words.pop()
+            self.has_trailing_space = False
 
     def check_pause_autospace(self) -> bool:
         """
@@ -215,16 +237,44 @@ class EnterpriseSentenceEngine:
         
         raw_str = " ".join(words)
         if not raw_str:
-            return ""
+            return " " if (include_current and self.has_trailing_space) else ""
+
+        if include_current and self.has_trailing_space and not self.current_word:
+            raw_str += " "
 
         # Capitalize sentence
         return raw_str[0].upper() + raw_str[1:] if len(raw_str) > 1 else raw_str.upper()
 
+    def get_display_html(self, placeholder: str = "(Raw ASL glosses will appear here...)") -> str:
+        """
+        Returns styled HTML representation for the UI text box with active
+        cursor and distinctive visual feedback for spaces.
+        """
+        if not self.committed_words and not self.current_word:
+            if self.has_trailing_space:
+                return '<span class="space-badge">&#9251; SPACE</span>'
+            return f'<span style="color: #94a3b8; font-style: italic;">{placeholder}</span>'
+
+        words_html = []
+        for w in self.committed_words:
+            words_html.append(f"<span>{w}</span>")
+
+        base_str = " ".join(words_html)
+        if self.current_word:
+            curr_html = f'<span style="color: #0284C7; font-weight: 800; text-decoration: underline;">{self.current_word}</span><span style="opacity: 0.7; animation: blink 1s infinite;">|</span>'
+            return f"{base_str} {curr_html}" if base_str else curr_html
+        elif self.has_trailing_space:
+            return f"{base_str}&nbsp;<span class=\"space-badge\">&#9251; SPACE</span>"
+        return base_str
+
     def get_translated_sentence(self) -> str:
         """Translates accumulated ASL glosses into a grammatically natural English sentence."""
-        if not self.committed_words:
+        words = list(self.committed_words)
+        if self.current_word:
+            words.append(self.current_word)
+        if not words:
             return ""
-        tokens = [ASLGlossToken(gloss=w) for w in self.committed_words]
+        tokens = [ASLGlossToken(gloss=w) for w in words]
         res = self.grammar_translator.translate_gloss_sequence(tokens)
         return res.english_translation
 

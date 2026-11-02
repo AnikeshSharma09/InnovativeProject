@@ -300,10 +300,8 @@ def run_realtime_application(
                 sentence_engine.backspace()
                 print(f"[*] Text: {sentence_engine.get_full_sentence()}")
             elif key == ord(" ") or key == 32:
-                word = sentence_engine.commit_current_word(autocorrect=False)
-                if word:
-                    logger.log_prediction(word, tag="WORD")
-                    print(f"[*] Logged word: '{word}' -> {logger.file_path}")
+                sentence_engine.add_character("space")
+                print(f"[*] Added Space. Text: {repr(sentence_engine.get_full_sentence())}")
             elif key == ord("a") or key == ord("A"):
                 if pred.is_stable and pred.stable_label and not pred.is_uncertain:
                     sentence_engine.add_character(pred.stable_label)

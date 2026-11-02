@@ -124,7 +124,21 @@ st.markdown(f"""
         min-height: 75px;
         color: #0F172A;
         word-wrap: break-word;
+        white-space: pre-wrap;
         box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+    }}
+    .space-badge {{
+        display: inline-block;
+        background: #FEF3C7;
+        color: #B45309;
+        border: 1px dashed #F59E0B;
+        border-radius: 4px;
+        padding: 1px 7px;
+        font-size: 0.78em;
+        font-weight: 700;
+        margin-left: 3px;
+        vertical-align: middle;
+        letter-spacing: 0.5px;
     }}
     .english-box {{
         background-color: #F0FDF4;
@@ -598,7 +612,7 @@ def main():
             grammar_badge_box = st.empty()
 
             # Initial box population
-            init_asl = engine.get_full_sentence(include_current=True) or "(Raw ASL glosses will appear here...)"
+            init_asl = engine.get_display_html() or "(Raw ASL glosses will appear here...)"
             init_eng = engine.get_translated_sentence() or "(English translated sentence...)"
             text_display_box.markdown(f'<div class="text-box">{init_asl}</div>', unsafe_allow_html=True)
             english_display_box.markdown(f'<div class="english-box">{init_eng}</div>', unsafe_allow_html=True)
@@ -627,15 +641,18 @@ def main():
 
             # Manual Sentence Controls
             st.markdown("##### 🛠️ Transcript Controls")
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns([1.1, 1.1, 1.0, 1.0, 1.0])
             with c1:
-                if st.button("➕ Add Current", use_container_width=True):
+                if st.button("➕ Add Sign", use_container_width=True):
                     if st.session_state.last_stable_char:
-                        engine.add_character(st.session_state.last_stable_char)
+                        char_to_add = st.session_state.last_stable_char
+                        engine.add_character(char_to_add)
                         if not st.session_state.disable_logging:
-                            logger.log_prediction(st.session_state.last_stable_char, tag="SIGN")
+                            logger.log_prediction(char_to_add, tag="SIGN")
+                        if char_to_add.lower() in ("space", "blank"):
+                            st.toast("␣ Space Registered!")
                         text_display_box.markdown(
-                            f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                            f'<div class="text-box">{engine.get_display_html()}</div>',
                             unsafe_allow_html=True
                         )
                         english_display_box.markdown(
@@ -643,19 +660,17 @@ def main():
                             unsafe_allow_html=True
                         )
             with c2:
-                if st.button("⌫ Undo Sign", use_container_width=True):
-                    if continuous_mode:
-                        crec = load_continuous_recognizer()
-                        if crec:
-                            removed = crec.undo_last_sign()
-                            if removed:
-                                st.toast(f"Undid sign: {removed}")
+                if st.button("␣ Space", use_container_width=True):
+                    committed = engine.commit_current_word(autocorrect=True)
+                    engine.has_trailing_space = True
+                    if not st.session_state.disable_logging:
+                        logger.log_prediction("space", tag="SPACE")
+                    if committed:
+                        st.toast(f"␣ Space added! Committed: {committed}")
                     else:
-                        removed = engine.delete_last_word()
-                        if removed:
-                            st.toast(f"Removed word: {removed}")
+                        st.toast("␣ Space Registered!")
                     text_display_box.markdown(
-                        f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                        f'<div class="text-box">{engine.get_display_html()}</div>',
                         unsafe_allow_html=True
                     )
                     english_display_box.markdown(
@@ -663,12 +678,18 @@ def main():
                         unsafe_allow_html=True
                     )
             with c3:
-                if st.button("🗑️ Delete Word", use_container_width=True):
-                    removed = engine.delete_last_word()
-                    if removed:
-                        st.toast(f"Deleted word: {removed}")
+                if st.button("⌫ Backspace", use_container_width=True):
+                    if continuous_mode:
+                        crec = load_continuous_recognizer()
+                        if crec:
+                            removed = crec.undo_last_sign()
+                            if removed:
+                                st.toast(f"Undid sign: {removed}")
+                    else:
+                        engine.backspace()
+                        st.toast("⌫ Deleted last item")
                     text_display_box.markdown(
-                        f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                        f'<div class="text-box">{engine.get_display_html()}</div>',
                         unsafe_allow_html=True
                     )
                     english_display_box.markdown(
@@ -676,6 +697,19 @@ def main():
                         unsafe_allow_html=True
                     )
             with c4:
+                if st.button("🗑️ Delete Word", use_container_width=True):
+                    removed = engine.delete_last_word()
+                    if removed:
+                        st.toast(f"Deleted word: {removed}")
+                    text_display_box.markdown(
+                        f'<div class="text-box">{engine.get_display_html()}</div>',
+                        unsafe_allow_html=True
+                    )
+                    english_display_box.markdown(
+                        f'<div class="english-box">{engine.get_translated_sentence()}</div>',
+                        unsafe_allow_html=True
+                    )
+            with c5:
                 if st.button("🧹 Clear All", use_container_width=True):
                     if continuous_mode:
                         crec = load_continuous_recognizer()
@@ -796,7 +830,7 @@ def main():
                                     else:
                                         engine.add_character(sign_val)
                                     text_display_box.markdown(
-                                        f'<div class="text-box">{engine.get_full_sentence(include_current=True)}</div>',
+                                        f'<div class="text-box">{engine.get_display_html()}</div>',
                                         unsafe_allow_html=True
                                     )
                                     english_display_box.markdown(
@@ -1007,12 +1041,17 @@ def main():
                                             auto_commit_counter = 0
                                         else:
                                             auto_commit_counter += 1
-                                            if auto_commit_counter >= 7:
+                                            threshold = 5 if pred.stable_label.lower() in ("space", "blank", "del", "delete") else 7
+                                            if auto_commit_counter >= threshold:
                                                 ch = pred.stable_label
                                                 engine.add_character(ch)
                                                 last_auto_char = ch
                                                 auto_commit_counter = 0
                                                 just_committed = True
+                                                if ch.lower() in ("space", "blank"):
+                                                    st.toast("␣ Space Registered!")
+                                                elif ch.lower() in ("del", "delete"):
+                                                    st.toast("⌫ Deleted Character")
                                     else:
                                         auto_commit_counter = max(0, auto_commit_counter - 1)
                                         if not pred.hand_detected or pred.kinetic_energy > 0.020:
@@ -1081,7 +1120,7 @@ def main():
                                         metric_buffer_box.markdown(f"**LSTM Window:** `[{pred.buffer_fill}/{predictor.sequence_length}]` ({buffer_ratio:.0%})")
 
                                         text_display_box.markdown(
-                                            f'<div class="text-box">{engine.get_full_sentence(include_current=True) or "(Signing...)"}</div>',
+                                            f'<div class="text-box">{engine.get_display_html() or "(Signing...)"}</div>',
                                             unsafe_allow_html=True
                                         )
                                         english_display_box.markdown(
