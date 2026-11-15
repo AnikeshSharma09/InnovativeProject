@@ -49,6 +49,7 @@ from utils.stabilizer import LandmarkStabilizer, ProbabilityStabilizer, DualLand
 from prediction.phrase_recognizer import EnterprisePhraseRecognizer, PhraseDetectionResult
 from utils.lip_morpheme_engine import LipMorphemeEngine
 from utils.hand_calibrator import HandCalibrator
+from models.rl_adaptive_agent import AdaptiveSignRLAgent
 
 
 @dataclass
@@ -181,6 +182,13 @@ class SignPredictor:
         self.enable_lip_fusion = True
         self.enable_calibration = True
         self._face_mesh = None
+
+        # Online Adaptive Reinforcement Learning Agent
+        self.rl_agent = AdaptiveSignRLAgent(
+            num_classes=len(self.classes),
+            classes=self.classes,
+            enabled=True
+        )
 
     @property
     def face_mesh(self):
@@ -487,8 +495,12 @@ class SignPredictor:
             ratio_pnk = float(abs(v_pnk[0]) / (abs(v_pnk[1]) + 1e-6))
             dx_pnk_mcp = float(abs(p_tip[0] - p_mcp[0]) / palm)
 
-            is_y_pose = (d_tp >= 1.05) or (d_tm_pip >= 0.70) or (d_ti_mcp >= 0.60 and d_tw >= 0.85) or (top1_label == "Y" and d_tp >= 0.50 and d_tm_pip >= 0.50)
-            is_i_upright = (ratio_pnk < 0.40) and (v_pnk[1] < -0.15) and (dx_pnk_mcp < 0.25)
+            # Anatomical criterion: In 'Y', the thumb is abducted/extended laterally away from palm.
+            # In 'I' and 'J', the thumb is folded tightly over the curled fingers (d_tm_pip < 0.40).
+            is_thumb_abducted = (d_tm_pip >= 0.45 and (d_tp >= 0.80 or d_tw >= 0.85 or thumb_ext)) or (thumb_ext and d_tm_pip >= 0.40) or (d_tp >= 1.15)
+            is_y_pose = is_thumb_abducted or (top1_label == "Y" and (d_tp >= 0.70 or d_tm_pip >= 0.38))
+
+            is_i_upright = (ratio_pnk < 0.45) and (v_pnk[1] < -0.15) and (dx_pnk_mcp < 0.28)
             is_j_curved = (ratio_pnk >= 0.50 or dx_pnk_mcp >= 0.30 or v_pnk[1] > -0.15)
             is_j_motion = (kinetic_energy >= 0.028) and (ratio_pnk >= 0.35 or top1_label == "J" or top2_label == "J")
 
@@ -541,14 +553,14 @@ class SignPredictor:
         # -------------------------------------------------------------
         elif idx_ext and not mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
             is_thumb_folded = (d_tm_mcp < 0.40) or (d_tm_pip < 0.30)
-            is_g_pose = (ratio_xy >= 1.10) and (abs(v_idx[0]) >= 0.18) and (not is_thumb_folded) and (cos_thumb_idx > 0.60)
-            is_horizontal_sideways = (ratio_xy >= 1.0) and (abs(v_idx[0]) >= 0.18)
+            is_g_pose = (ratio_xy >= 1.25) and (abs(v_idx[0]) >= 0.20) and (not is_thumb_folded) and (cos_thumb_idx > 0.55) and (d_tm >= 0.45)
+            is_horizontal_sideways = (ratio_xy >= 1.35) and (abs(v_idx[0]) >= 0.22)
 
             if (d_tip_pip < 0.38) or (top1_label == "X" and d_tip_pip < 0.45):
                 _force_class("X", f"Bent index hook (d_tip_pip={d_tip_pip:.2f})", ["1", "D", "G", "Z", "H"])
             elif kinetic_energy >= 0.028:
                 _force_class("Z", f"Dynamic stroke trajectory (KE={kinetic_energy:.3f})", ["G", "1", "D", "X", "H"])
-            elif d_tm < 0.20 and ratio_xy < 1.20 and d_tip_pip >= 0.40 and (not is_g_pose):
+            elif ((d_tm < 0.19 and d_tm_pip >= 0.40) or (d_tm < 0.35 and d_tm_pip >= 0.38 and (top1_label == "D" or top2_label == "D"))) and v_idx[1] < -0.10 and ratio_xy < 1.25 and (not is_g_pose):
                 _force_class("D", f"Thumb-middle tip circle loop (d_tm={d_tm:.2f})", ["G", "Z", "1", "L", "X", "F", "H"])
             elif thumb_ext and d_ti_mcp >= 0.55 and d_tm > 0.45 and ratio_xy < 0.70 and cos_thumb_idx < 0.65:
                 _force_class("L", f"L-shape upright index with extended thumb (d_ti_mcp={d_ti_mcp:.2f})", ["1", "D", "G", "Z", "X", "H"])
@@ -559,11 +571,11 @@ class SignPredictor:
                     _force_class("G", "Horizontal point with thumb along index", ["Z", "1", "D", "X", "H"])
                 else:
                     _force_class("H", f"Horizontal sideways point (ratio={ratio_xy:.2f}) with folded thumb (H-pose occlusion)", ["1", "G", "Z", "D", "X", "V"])
-            elif (0.45 <= ratio_xy < 1.45) and is_thumb_folded and (top1_label == "Z" or top2_label == "Z" or (top1_label == "G" and probs[self.classes.index("Z")] > 0.02)):
+            elif (0.45 <= ratio_xy < 1.35) and is_thumb_folded and (top1_label == "Z" or top2_label == "Z" or (top1_label == "G" and probs[self.classes.index("Z")] > 0.02)):
                 _force_class("Z", f"Diagonal index pose (ratio={ratio_xy:.2f}) with folded thumb", ["G", "1", "D", "X", "H"])
-            elif ratio_xy <= 0.70 and v_idx[1] < -0.15:
+            elif ratio_xy <= 0.75 and v_idx[1] < -0.15:
                 _force_class("1", "Static upright index point", ["G", "Z", "D", "X", "H"])
-            elif ratio_xy > 0.85:
+            elif ratio_xy > 1.35:
                 _force_class("H", f"Sideways horizontal pointing hand (ratio={ratio_xy:.2f})", ["1", "G", "Z", "D", "X"])
             else:
                 _force_class("1", "Upright index point fallback", ["G", "Z", "D", "X", "H"])
@@ -574,7 +586,7 @@ class SignPredictor:
         elif idx_ext and mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
             thumb_elev = float((i_mcp[1] - t_tip[1]) / palm)
             is_3_pose = (d_tp_mcp >= 1.00) and (d_tw >= 1.05) and (d_tm_pip >= 0.70)
-            is_h_pose = (ratio_xy >= 0.90 or abs(v_idx[0]) > abs(v_idx[1])) and (abs(v_idx[0]) >= 0.15)
+            is_h_pose = (ratio_xy >= 1.35) and (abs(v_idx[0]) >= 0.22)
             is_k_geom = (thumb_elev >= -0.08) and (d_ti < 1.20 or d_tm_pip < 0.42)
             is_v_geom = (thumb_elev < -0.08) or (d_ti >= 1.25 and d_tm_pip >= 0.45)
 
@@ -940,6 +952,12 @@ class SignPredictor:
         if disambig_note:
             model_used_name += f" [{disambig_note}]"
 
+        # Adaptive Reinforcement Learning Modulation (Contextual Bandit Personalization)
+        if hasattr(self, "rl_agent") and self.rl_agent.enabled:
+            probs, rl_note = self.rl_agent.adapt_probabilities(active_coords, probs)
+            if rl_note:
+                model_used_name += f" [{rl_note}]"
+
         # Probability Smoothing
         probs = self.prob_stabilizer.update(probs)
 
@@ -1287,6 +1305,23 @@ class SignPredictor:
             right_hand_proto=None,
             dual_result=dual_res
         )
+
+    def record_rl_feedback(self, label: str, reward: float, reason: str = "explicit") -> Dict[str, Any]:
+        """Dispatches external feedback (e.g. Backspace -1.0, Auto-commit +1.0) to RL agent."""
+        if hasattr(self, "rl_agent"):
+            return self.rl_agent.record_feedback(label, reward, reason=reason)
+        return {"status": "error", "reason": "No RL agent"}
+
+    def reset_rl_policy(self) -> None:
+        """Resets the RL policy weights and statistics back to zero initialization."""
+        if hasattr(self, "rl_agent"):
+            self.rl_agent.reset_policy()
+
+    def get_rl_metrics(self) -> Dict[str, Any]:
+        """Retrieves runtime statistics and telemetry for the RL personalization engine."""
+        if hasattr(self, "rl_agent"):
+            return self.rl_agent.get_metrics()
+        return {}
 
     def close(self) -> None:
         """Releases MediaPipe resources."""

@@ -535,6 +535,26 @@ def main():
                     st.toast("Biomechanical profile auto-tuned!")
                     st.rerun()
 
+        with st.expander("🤖 Adaptive RL Policy (Online Personalization)", expanded=False):
+            st.caption("Continuously adapts decision boundaries in real time to your personal signing anatomy via Policy Gradient (REINFORCE).")
+            if predictor is not None and hasattr(predictor, "rl_agent"):
+                rl = predictor.rl_agent
+                rl_enabled = st.toggle("Enable RL Policy Adaptation", value=rl.enabled, key="rl_policy_toggle")
+                rl.enabled = rl_enabled
+                metrics = rl.get_metrics()
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("Feedback Episodes", metrics.get("episodes", 0))
+                    st.metric("Positive Hits", metrics.get("positive_rewards", 0))
+                with c2:
+                    st.metric("Cumulative Reward", f"{metrics.get('cumulative_reward', 0.0):+.1f}")
+                    st.metric("Corrections", metrics.get("negative_rewards", 0))
+                st.caption(f"Last Event: {metrics.get('last_event', 'None')}")
+                if st.button("🔄 Reset RL Policy", key="btn_reset_rl"):
+                    rl.reset_policy()
+                    st.toast("RL Policy reset to zero-bias identity.")
+                    st.rerun()
+
         st.markdown("---")
         # Accessibility Expander
         with st.expander("♿ Accessibility & Visual Settings", expanded=False):
@@ -772,8 +792,11 @@ def main():
                             if removed:
                                 st.toast(f"Undid sign: {removed}")
                     else:
+                        deleted_char = engine.last_char
                         engine.backspace()
-                        st.toast("⌫ Deleted last item")
+                        if deleted_char and predictor is not None and hasattr(predictor, "record_rl_feedback"):
+                            predictor.record_rl_feedback(deleted_char, -1.0, reason="user_backspace")
+                        st.toast("⌫ Deleted last item (RL Negative Feedback recorded)")
                     text_display_box.markdown(
                         f'<div class="text-box">{engine.get_display_html()}</div>',
                         unsafe_allow_html=True
@@ -1215,6 +1238,11 @@ def main():
                                                     st.toast("␣ Space Registered!")
                                                 elif ch.lower() in ("del", "delete"):
                                                     st.toast("⌫ Deleted Character")
+                                                    if hasattr(predictor, "record_rl_feedback") and engine.last_char:
+                                                        predictor.record_rl_feedback(engine.last_char, -1.0, reason="del_gesture")
+                                                else:
+                                                    if hasattr(predictor, "record_rl_feedback"):
+                                                        predictor.record_rl_feedback(ch, +0.5, reason="auto_commit")
                                     else:
                                         auto_commit_counter = max(0, auto_commit_counter - 1)
                                         if not pred.hand_detected:
@@ -1229,6 +1257,10 @@ def main():
                                                 logger.log_prediction(w_saved, tag="WORD")
                                             st.toast(f"✨ Word Formed: {w_saved}")
                                             just_committed = True
+                                            if hasattr(predictor, "record_rl_feedback"):
+                                                for c in w_saved.upper():
+                                                    if c in predictor.classes:
+                                                        predictor.record_rl_feedback(c, +1.0, reason="word_completion")
 
                                     # Native Closed Caption overlay
                                     cv2.rectangle(frame, (0, h - 70), (w, h), (15, 23, 42), -1)

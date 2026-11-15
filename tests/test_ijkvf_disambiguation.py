@@ -258,6 +258,35 @@ class TestIJKVFDisambiguation(unittest.TestCase):
         self.assertEqual(pred, "K", f"Expected 'K' but got '{pred}' (note: {note})")
         self.assertLessEqual(probs_out[self.classes.index("P")], 0.02)
 
+    def test_diagonal_d_not_hijacked_by_g(self):
+        """D sign tilted at 45 degrees with hostile RF predicting G must predict 'D', NEVER 'G'."""
+        coords = [list(pt) for pt in self.canon["D"]]
+        # Tilt index finger at ~45 degrees (v_idx[0] ~ -0.25, v_idx[1] ~ -0.25, ratio_xy ~ 1.0)
+        coords[8] = [coords[5][0] - 0.25, coords[5][1] - 0.25, coords[8][2]]
+        probs_in = self._make_probs("G", 0.80, "D", 0.15)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "D", f"Expected 'D' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("G")], 0.02)
+
+    def test_relaxed_y_with_abducted_thumb_predicts_y(self):
+        """Y sign with realistic thumb abduction (d_tp ~ 0.95, d_tm_pip ~ 0.55) must predict 'Y', NEVER 'I'."""
+        coords = [list(pt) for pt in self.canon["I"]]
+        # Abduct thumb laterally to form relaxed 'Y' pose
+        w = np.array(coords[0])
+        palm = np.linalg.norm(np.array(coords[9]) - w)
+        coords[4] = [coords[2][0] + 0.65 * palm, coords[2][1] - 0.15 * palm, coords[4][2]]
+        # Hostile: RF predicts I with 85%, Y with 0.10
+        probs_in = self._make_probs("I", 0.85, "Y", 0.10)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "Y", f"Expected 'Y' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("I")], 0.02)
+
 
 if __name__ == "__main__":
     unittest.main()
