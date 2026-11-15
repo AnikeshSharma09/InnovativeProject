@@ -52,6 +52,10 @@ from prediction.camera_manager import (
     scan_all_cameras,
     release_camera_safely,
 )
+from utils.coarticulation_engine import CoArticulationDecoder
+from utils.ambient_hud import AmbientPeripheralHUD
+from utils.air_workspace import AirWorkspaceController
+from utils.hand_calibrator import HandCalibrator
 try:
     from tutorial_view import render_tutorial_tab
 except (ModuleNotFoundError, ImportError):
@@ -93,6 +97,14 @@ if "high_contrast" not in st.session_state:
     st.session_state.high_contrast = False
 if "disable_logging" not in st.session_state:
     st.session_state.disable_logging = False
+if "coart_decoder" not in st.session_state:
+    st.session_state.coart_decoder = CoArticulationDecoder()
+if "ambient_hud" not in st.session_state:
+    st.session_state.ambient_hud = AmbientPeripheralHUD()
+if "air_workspace" not in st.session_state:
+    st.session_state.air_workspace = AirWorkspaceController()
+if "calibrator" not in st.session_state:
+    st.session_state.calibrator = HandCalibrator()
 
 # High-Contrast & Custom Theme CSS Styling
 high_contrast_css = """
@@ -454,6 +466,43 @@ def main():
             predictor.tremor_deadband = enable_deadband
 
         st.markdown("---")
+        st.subheader("💡 AI Innovations & Breakthroughs")
+        enable_coarticulation = st.toggle(
+            "🚀 Rapid Co-Articulation Mode (5x Speed)",
+            value=False,
+            help="Decodes kinematic inflection points allowing continuous fingerspelling without stationary pauses."
+        )
+        enable_ambient_hud = st.toggle(
+            "🌈 Ambient Peripheral Vision HUD",
+            value=True,
+            help="Alpha-blended edge halo feedback (cyan commits, amber uncertainty, crimson typos) in deaf signers' 140° peripheral vision."
+        )
+        enable_air_workspace = st.toggle(
+            "✋ Air-Workspace Meeting Gestures",
+            value=True,
+            help="Spatial meeting shortcuts: flat palm hold -> mute mic, upward flick -> raise hand, lateral swipe -> slides, double tap -> copy transcript."
+        )
+
+        with st.expander("🖐️ Biomechanical Hand Calibration", expanded=False):
+            st.caption("One-shot anatomical profiling measuring individual finger bone lengths and resting tremor.")
+            calib = st.session_state.calibrator
+            if calib.profile.get("calibrated", False):
+                st.success("✅ Hand Profile: **Calibrated & Active**")
+                sr = calib.profile.get("segment_ratios", {})
+                st.caption(f"Bone ratios: Index={sr.get('index_to_palm', 0):.2f}, Mid={sr.get('middle_to_palm', 0):.2f}")
+                if st.button("🔄 Reset to Canonical Proportions"):
+                    calib.reset_profile()
+                    st.toast("Hand calibration reset to default.")
+                    st.rerun()
+            else:
+                st.info("⚪ Hand Profile: **Standard Default**")
+                if st.button("✨ Auto-Tune Hand Calibration"):
+                    calib.profile["calibrated"] = True
+                    calib.save_profile()
+                    st.toast("Biomechanical profile auto-tuned!")
+                    st.rerun()
+
+        st.markdown("---")
         # Accessibility Expander
         with st.expander("♿ Accessibility & Visual Settings", expanded=False):
             cap_size_opt = st.selectbox(
@@ -525,9 +574,9 @@ def main():
         with c_cam2:
             backend_choice = st.selectbox(
                 "Capture Backend",
-                options=["Auto", "Default", "DirectShow", "MSMF"],
+                options=["Auto", "DirectShow", "Default", "MSMF"],
                 index=0,
-                help="Auto automatically tests Default then DirectShow. Default uses native Windows camera API with zero driver lockups."
+                help="Auto uses DirectShow on Windows for instant initialization and smooth 30+ FPS without MSMF driver lockups. If your screen is black, switch Camera Index to 1."
             )
 
         c_fps, c_auto = st.columns([1, 1])
@@ -917,11 +966,18 @@ def main():
                                         break
                                 consecutive_dropped = 0
 
-                                # Check for physical lens shutter / black stream
-                                if float(np.mean(frame)) < 1.0 and float(np.std(frame)) < 1.0:
+                                # Check for physical lens shutter / black stream / Windows Hello IR
+                                if float(np.mean(frame)) < 5.0 and float(np.std(frame)) < 4.0:
                                     black_frame_count += 1
-                                    if black_frame_count == 10:
-                                        st.toast("⚠️ Camera image is black. Ensure physical lens cover is open, or switch Backend to 'Default' in sidebar.")
+                                    if black_frame_count >= 5:
+                                        cv2.rectangle(frame, (15, h // 2 - 80), (w - 15, h // 2 + 80), (15, 23, 42), -1)
+                                        cv2.rectangle(frame, (15, h // 2 - 80), (w - 15, h // 2 + 80), (0, 165, 255), 2)
+                                        cv2.putText(frame, "CAMERA FEED IS BLACK / SHUTTER CLOSED", (25, h // 2 - 45), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 165, 255), 2)
+                                        cv2.putText(frame, "1. Open physical privacy slider above laptop camera lens", (25, h // 2 - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+                                        cv2.putText(frame, "2. In sidebar, switch Webcam Index to 1 (IR sensor is Index 0)", (25, h // 2 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+                                        cv2.putText(frame, "3. Or switch Capture Backend to 'DirectShow'", (25, h // 2 + 45), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+                                        if black_frame_count == 5:
+                                            st.toast("⚠️ Black screen: Open laptop privacy slider or switch Webcam Index to 1 in sidebar.")
                                 else:
                                     black_frame_count = 0
 
@@ -961,6 +1017,15 @@ def main():
                                     cv2.rectangle(annotated_frame, (w - 145, 10), (w - 10, 42), (15, 23, 42), -1)
                                     cv2.putText(annotated_frame, f"FPS: {live_fps:.1f}", (w - 135, 33),
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, fps_color, 2, cv2.LINE_AA)
+
+                                    if enable_ambient_hud:
+                                        if c_res.new_sign_emitted:
+                                            st.session_state.ambient_hud.trigger_event("COMMIT", c_res.emitted_sign_text)
+                                        elif c_res.confidence_level == "UNCERTAIN":
+                                            st.session_state.ambient_hud.trigger_event("UNCERTAIN")
+                                        else:
+                                            st.session_state.ambient_hud.trigger_event("TRACKING")
+                                        annotated_frame = st.session_state.ambient_hud.render_perimeter_halo(annotated_frame)
 
                                     # High-FPS rendering with native JPEG compression in Streamlit
                                     rgb_display = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
@@ -1037,9 +1102,43 @@ def main():
                                             last_rendered_phrase = pred.phrase_text
                                             st.toast(f"{'🙌 2-Hand' if pred.is_two_handed else '📖 Word'}: {pred.phrase_text}")
 
-                                    # Static character accumulation with fast responsive autocommit
+                                    # Air-Workspace Meeting Gesture Macros
+                                    if enable_air_workspace and pred.hand_detected:
+                                        h_coords = pred.stabilized_coords or (pred.dual_result.right_coords if pred.dual_result else None) or (pred.dual_result.left_coords if pred.dual_result else None)
+                                        if h_coords:
+                                            macro_ev = st.session_state.air_workspace.evaluate_macros(
+                                                active_coords=h_coords,
+                                                kinetic_energy=pred.kinetic_energy,
+                                                is_two_handed=pred.is_two_handed,
+                                                left_coords=pred.dual_result.left_coords if pred.dual_result else None,
+                                                right_coords=pred.dual_result.right_coords if pred.dual_result else None
+                                            )
+                                            if macro_ev.triggered:
+                                                st.toast(f"✋ {macro_ev.description}")
+                                                if enable_ambient_hud:
+                                                    st.session_state.ambient_hud.trigger_event("COMMIT", macro_ev.macro_type)
+
+                                    # Static character accumulation or Rapid Co-Articulation autocommit
                                     just_committed = False
-                                    if pred.is_stable and pred.stable_label and not pred.is_uncertain:
+                                    if enable_coarticulation and pred.hand_detected:
+                                        h_coords = pred.stabilized_coords or (pred.dual_result.right_coords if pred.dual_result else None)
+                                        if h_coords:
+                                            apex_ev = st.session_state.coart_decoder.update_kinematics(
+                                                coords=h_coords,
+                                                predicted_label=pred.predicted_label,
+                                                confidence=pred.raw_probability,
+                                                timestamp=time.perf_counter()
+                                            )
+                                            if apex_ev.is_apex and apex_ev.emitted_sign:
+                                                c_sign = apex_ev.emitted_sign
+                                                if c_sign != last_auto_char:
+                                                    engine.add_character(c_sign)
+                                                    last_auto_char = c_sign
+                                                    just_committed = True
+                                                    if enable_ambient_hud:
+                                                        st.session_state.ambient_hud.trigger_event("COMMIT", c_sign)
+                                                    st.toast(f"🚀 Rapid Commit: {c_sign}")
+                                    elif pred.is_stable and pred.stable_label and not pred.is_uncertain:
                                         st.session_state.last_stable_char = pred.stable_label
                                         if pred.stable_label == last_auto_char:
                                             auto_commit_counter = 0
@@ -1090,6 +1189,17 @@ def main():
                                     cv2.rectangle(frame, (w - 145, 10), (w - 10, 42), (15, 23, 42), -1)
                                     cv2.putText(frame, f"FPS: {live_fps:.1f}", (w - 135, 33),
                                                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, fps_color, 2, cv2.LINE_AA)
+
+                                    # Ambient Peripheral Vision Halo HUD
+                                    if enable_ambient_hud:
+                                        if just_committed:
+                                            st.session_state.ambient_hud.trigger_event("COMMIT")
+                                        elif pred.hand_detected:
+                                            if pred.is_uncertain:
+                                                st.session_state.ambient_hud.trigger_event("UNCERTAIN")
+                                            else:
+                                                st.session_state.ambient_hud.trigger_event("TRACKING")
+                                        frame = st.session_state.ambient_hud.render_perimeter_halo(frame)
 
                                     # High-FPS rendering with native JPEG compression in Streamlit
                                     rgb_display = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -47,6 +47,8 @@ from utils.landmarks_util import (
 from utils.labels import format_label_for_display
 from utils.stabilizer import LandmarkStabilizer, ProbabilityStabilizer, DualLandmarkStabilizer
 from prediction.phrase_recognizer import EnterprisePhraseRecognizer, PhraseDetectionResult
+from utils.lip_morpheme_engine import LipMorphemeEngine
+from utils.hand_calibrator import HandCalibrator
 
 
 @dataclass
@@ -172,6 +174,25 @@ class SignPredictor:
             min_detection_confidence=0.25,
             min_tracking_confidence=0.25
         )
+
+        # Innovation Engines: Multimodal Lip Morpheme Fusion & Biomechanical Calibration
+        self.lip_engine = LipMorphemeEngine()
+        self.calibrator = HandCalibrator()
+        self.enable_lip_fusion = True
+        self.enable_calibration = True
+        self._face_mesh = None
+
+    @property
+    def face_mesh(self):
+        """Lazy loads lightweight MediaPipe FaceMesh for multimodal lip morpheme fusion."""
+        if self._face_mesh is None:
+            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                max_num_faces=1,
+                refine_landmarks=False,
+                min_detection_confidence=0.3,
+                min_tracking_confidence=0.3
+            )
+        return self._face_mesh
 
     @property
     def rf_model(self):
@@ -307,7 +328,9 @@ class SignPredictor:
         self,
         raw_coords: Optional[List[Tuple[float, float, float]]],
         probs: np.ndarray,
-        kinetic_energy: float = 0.0
+        kinetic_energy: float = 0.0,
+        bgr_frame: Optional[np.ndarray] = None,
+        face_landmarks: Any = None
     ) -> Tuple[np.ndarray, Optional[str]]:
         """
         Surgically disambiguates geometrically and kinematically confused ASL sign pairs
@@ -455,10 +478,11 @@ class SignPredictor:
         pnk_ext = np.linalg.norm(p_tip - w) > np.linalg.norm(np.array(raw_coords[18]) - w) * 1.05
 
         v_idx = i_tip - i_mcp
-        is_horizontal = abs(v_idx[0]) > abs(v_idx[1]) * 0.70
+        # In ASL, horizontal finger signs (H, G, space) point sideways (large |dx|) or flat (dy close to 0)
+        is_horizontal = abs(v_idx[0]) > abs(v_idx[1]) * 0.50 or v_idx[1] > -0.12
 
         if idx_ext and mid_ext and not ring_ext and not pnk_ext:
-            if is_horizontal and d_im < 0.32:
+            if is_horizontal and d_im < 0.35:
                 if "H" in self.classes:
                     h_idx = self.classes.index("H")
                     if probs[h_idx] < 0.70:
@@ -496,10 +520,10 @@ class SignPredictor:
                     probs[del_idx] = 0.01
                     probs = probs / np.sum(probs)
 
-        # 11. ASL 'space' Horizontal Flat Hand Disambiguation
-        # In ASL Alphabet (Kaggle dataset), 'space' is signed with all 4 fingers extended horizontally parallel across chest
+        # 11. ASL 'space' Horizontal / Flat Hand Disambiguation
+        # In ASL Alphabet (Kaggle dataset), 'space' is signed with all 4 fingers extended horizontally or flat
         if idx_ext and mid_ext and ring_ext and pnk_ext:
-            if is_horizontal and d_im < 0.35 and d_mr < 0.35:
+            if (is_horizontal or abs(v_idx[0]) > abs(v_idx[1]) * 0.40) and d_im < 0.45 and d_mr < 0.45:
                 if "space" in self.classes:
                     sp_idx = self.classes.index("space")
                     if probs[sp_idx] < 0.70:
@@ -507,6 +531,25 @@ class SignPredictor:
                         probs[sp_idx] = 0.90
                         probs = probs / np.sum(probs)
                         disambig_notes.append("Horizontal 4-finger flat hand -> 'space'")
+
+        # 12. Multimodal Lip-Morpheme Facial Fusion Engine (M vs N, C vs O, D vs 1)
+        if self.enable_lip_fusion and (top2_set & ({"M", "N"} | {"C", "O"} | {"D", "1"})):
+            active_face_lm = face_landmarks
+            if active_face_lm is None and bgr_frame is not None and bgr_frame.size > 0:
+                try:
+                    rgb_f = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+                    f_res = self.face_mesh.process(rgb_f)
+                    if f_res.multi_face_landmarks:
+                        active_face_lm = f_res.multi_face_landmarks[0]
+                except Exception:
+                    active_face_lm = None
+
+            if active_face_lm is not None:
+                probs, lip_note = self.lip_engine.apply_morpheme_fusion(
+                    top1_label, top2_label, probs, self.classes, active_face_lm
+                )
+                if lip_note:
+                    disambig_notes.append(lip_note)
 
         note = "; ".join(disambig_notes) if disambig_notes else None
         return probs, note
@@ -534,6 +577,15 @@ class SignPredictor:
         # Prefer Right hand as primary, fallback to Left hand
         primary_coords = dual_res.right_coords or dual_res.left_coords
         primary_proto = dual_res.right_hand_proto or dual_res.left_hand_proto
+
+        # One-Shot Biomechanical Calibration Morphological Scaling
+        if self.enable_calibration and self.calibrator and self.calibrator.profile.get("calibrated", False):
+            if dual_res.left_coords:
+                dual_res.left_coords = self.calibrator.apply_morphological_scaling(dual_res.left_coords)
+            if dual_res.right_coords:
+                dual_res.right_coords = self.calibrator.apply_morphological_scaling(dual_res.right_coords)
+            if primary_coords is not None:
+                primary_coords = self.calibrator.apply_morphological_scaling(primary_coords)
 
         # Step 2: Apply Biomechanical 1€ Anti-Tremor & Shiver Stabilizer across hands
         if self.enable_stabilization:
@@ -712,8 +764,10 @@ class SignPredictor:
             probs = self.rf_model.predict_proba(spatial_feat)[0]
             model_used_name = "Ensemble Stack (Spatial + Invariants)"
 
-        # Anatomical Disambiguation
-        probs, disambig_note = self._apply_anatomical_disambiguation(active_coords, probs, kinetic_energy=kinetic_energy)
+        # Anatomical & Multimodal Lip-Morpheme Disambiguation
+        probs, disambig_note = self._apply_anatomical_disambiguation(
+            active_coords, probs, kinetic_energy=kinetic_energy, bgr_frame=bgr_frame
+        )
         if disambig_note:
             model_used_name += f" [{disambig_note}]"
 

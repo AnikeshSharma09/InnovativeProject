@@ -21,9 +21,10 @@ import numpy as np
 def get_platform_backends() -> List[Tuple[str, int]]:
     """Returns the ordered list of OpenCV video capture backends for the current OS."""
     if sys.platform.startswith("win"):
+        # On Windows, DirectShow is fast (<50ms open, smooth 30+ FPS) and avoids MSMF 1.5s lockup
         return [
-            ("Default", cv2.CAP_ANY),
             ("DirectShow", cv2.CAP_DSHOW),
+            ("Default", cv2.CAP_ANY),
             ("MSMF", cv2.CAP_MSMF),
         ]
     elif sys.platform.startswith("darwin"):
@@ -49,14 +50,26 @@ def test_single_camera(index: int, backend_name: str, backend_api: int) -> Tuple
         if not cap.isOpened():
             return False, None
 
-        # Warm-up attempts: verify image delivery and check that frame is not pitch-black zeros
-        for _ in range(5):
+        if backend_name == "DirectShow":
+            try:
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+            except Exception:
+                pass
+        try:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+
+        # Warm-up attempts: verify image delivery and check that frame is illuminated (not black zeros/IR sensor)
+        for _ in range(4):
             ret, frame = cap.read()
             if ret and frame is not None and frame.size > 0:
-                if float(np.mean(frame)) > 1.0 or float(np.std(frame)) > 1.0:
+                if float(np.mean(frame)) > 6.0 or float(np.std(frame)) > 4.0:
                     h, w = frame.shape[:2]
                     return True, (w, h)
-            time.sleep(0.04)
+            time.sleep(0.03)
 
         return False, None
     except Exception:
@@ -130,6 +143,9 @@ def open_robust_camera(
         indices_to_try.extend(alternatives)
 
     notification = None
+    first_opened_cap = None
+    first_opened_idx = requested_index
+    first_opened_backend = "Default"
 
     for idx in indices_to_try:
         for b_name, b_api in backends:
@@ -139,39 +155,66 @@ def open_robust_camera(
                 if not cap.isOpened():
                     continue
 
-                # Hardware camera buffer configuration
+                if b_name == "DirectShow":
+                    try:
+                        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+                    except Exception:
+                        pass
                 try:
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cap.set(cv2.CAP_PROP_FPS, 30)
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 except Exception:
                     pass
 
-                # Warm-up check: verify real image delivery (not pure black 0-brightness frames)
+                # Warm-up check: verify real image delivery (not pure black 0-brightness frames / Windows Hello IR)
                 delivered = False
-                for _ in range(5):
+                for _ in range(4):
                     ret, test_frame = cap.read()
                     if ret and test_frame is not None and test_frame.size > 0:
-                        # Ensure frame has real light data (not black dummy frames caused by device locks)
-                        if float(np.mean(test_frame)) > 1.0 or float(np.std(test_frame)) > 1.0:
+                        # Ensure frame has real light data (not black dummy frames or IR sensor)
+                        if float(np.mean(test_frame)) > 6.0 or float(np.std(test_frame)) > 4.0:
                             delivered = True
                             break
-                    time.sleep(0.04)
+                    time.sleep(0.03)
 
                 if delivered:
                     if idx != requested_index:
                         notification = (
-                            f"⚠️ Camera {requested_index} was offline or non-responsive. "
-                            f"Automatically switched to active Camera {idx} ({b_name})!"
+                            f"⚠️ Camera {requested_index} was offline or black. "
+                            f"Automatically switched to active illuminated Camera {idx} ({b_name})!"
                         )
+                    # Release any earlier saved candidate
+                    if first_opened_cap is not None and first_opened_cap != cap:
+                        try:
+                            first_opened_cap.release()
+                        except Exception:
+                            pass
                     return cap, idx, b_name, notification
                 else:
-                    cap.release()
+                    # Keep track of first opened camera as fallback in case all cameras are in dark room / shuttered
+                    if first_opened_cap is None:
+                        first_opened_cap = cap
+                        first_opened_idx = idx
+                        first_opened_backend = b_name
+                    else:
+                        cap.release()
             except Exception:
-                if cap is not None:
+                if cap is not None and cap != first_opened_cap:
                     try:
                         cap.release()
                     except Exception:
                         pass
                 continue
+
+    # If an opened camera was found but returned dark frames (e.g. physical privacy shutter closed)
+    if first_opened_cap is not None:
+        notification = (
+            f"ℹ️ Connected to Camera {first_opened_idx} ({first_opened_backend}). "
+            "If the video feed is black, please ensure your laptop's physical webcam privacy shutter is open."
+        )
+        return first_opened_cap, first_opened_idx, first_opened_backend, notification
 
     return None, requested_index, "None", "Unable to open any active webcam."
 
