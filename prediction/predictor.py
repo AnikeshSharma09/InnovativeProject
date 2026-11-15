@@ -483,7 +483,8 @@ class SignPredictor:
         # 3. Pinky-Only Extended Signs: 'I', 'J', 'Y'
         # -------------------------------------------------------------
         elif pnk_ext and not idx_ext and not mid_ext and not ring_ext:
-            if thumb_ext or d_tp >= 1.40:
+            is_y_pose = (d_tp >= 1.05) or (d_tp_mcp >= 0.70) or (d_ti_mcp >= 0.55 and d_tw >= 0.70)
+            if is_y_pose:
                 _force_class("Y", f"Extended thumb + pinky shaka (d_tp={d_tp:.2f})", ["I", "J"])
             elif kinetic_energy >= 0.028:
                 _force_class("J", f"Dynamic pinky swoop stroke (KE={kinetic_energy:.3f})", ["I", "Y"])
@@ -548,15 +549,19 @@ class SignPredictor:
         # 6. Exactly 2 Fingers Extended (Index, Middle): 'V', '2', '3', 'U', 'R', 'K', 'H'
         # -------------------------------------------------------------
         elif idx_ext and mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
-            if thumb_ext:
+            is_k_pose = (d_tm_pip < 0.40) and (d_ti_mcp < 0.70) and (ratio_xy < 1.30)
+            is_3_pose = (d_tp_mcp >= 1.00) and (d_tw >= 1.10) and (d_tm_pip >= 0.75)
+            is_h_pose = (ratio_xy >= 1.40) and (abs(v_idx[0]) >= 0.20) and (d_im < 0.38)
+
+            if is_3_pose:
                 _force_class("3", f"Thumb+Index+Mid ext (d_tp_mcp={d_tp_mcp:.2f}, d_tw={d_tw:.2f})", ["V", "2", "U", "R", "K", "H", "W", "6"])
-            elif (ratio_xy >= 1.10) and d_im < 0.35 and v_idx[1] < 0.0:
-                _force_class("H", "Horizontal 2-finger parallel", ["V", "2", "U", "R", "K", "W", "6"])
             elif ((i_tip[0] - m_tip[0]) * (i_mcp[0] - m_mcp[0]) < 0) or top1_label == "R":
                 _force_class("R", "Crossed index and middle fingers", ["V", "2", "U", "K", "H", "W", "6"])
-            elif (d_tm_pip < 0.36) and (t_tip[1] < i_mcp[1] + 0.15 * palm):
+            elif is_k_pose:
                 # ASL 'K': Thumb placed at middle finger PIP joint
                 _force_class("K", f"Thumb at middle PIP joint (d_tm_pip={d_tm_pip:.2f})", ["V", "2", "U", "R", "H", "W", "6"])
+            elif is_h_pose:
+                _force_class("H", "Horizontal 2-finger parallel", ["V", "2", "U", "R", "K", "W", "6"])
             elif d_im < 0.35:
                 _force_class("U", f"Touching parallel fingers (d_im={d_im:.2f})", ["V", "2", "R", "K", "W", "6"])
             else:

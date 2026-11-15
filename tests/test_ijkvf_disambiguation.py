@@ -138,6 +138,44 @@ class TestIJKVFDisambiguation(unittest.TestCase):
         self.assertEqual(pred, "B", f"Expected 'B' but got '{pred}' (note: {note})")
         self.assertLessEqual(probs_out[self.classes.index("F")], 0.02)
 
+    # -------------------------------------------------------------
+    # 4. Y vs I and K vs V vs H Tests
+    # -------------------------------------------------------------
+    def test_y_overcomes_false_i_init(self):
+        """Y sign (shaka: thumb + pinky) must predict 'Y', even if RF had false 'I' at 85%."""
+        coords = self.canon["Y"]
+        probs_in = self._make_probs("I", 0.85, "Y", 0.10)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "Y", f"Expected 'Y' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("I")], 0.02)
+
+    def test_k_overcomes_hostile_h(self):
+        """K sign must predict 'K', even if model had false 'H' at 80%."""
+        coords = self.canon["K"]
+        probs_in = self._make_probs("H", 0.80, "K", 0.10)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "K", f"Expected 'K' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("H")], 0.02)
+        self.assertLessEqual(probs_out[self.classes.index("V")], 0.02)
+
+    def test_h_horizontal_two_fingers(self):
+        """H sign (horizontal 2 parallel fingers) must predict 'H', not 'V' or 'K'."""
+        coords = self.canon["H"]
+        probs_in = self._make_probs("V", 0.70, "H", 0.20)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "H", f"Expected 'H' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("V")], 0.02)
+        self.assertLessEqual(probs_out[self.classes.index("K")], 0.02)
+
 
 if __name__ == "__main__":
     unittest.main()
