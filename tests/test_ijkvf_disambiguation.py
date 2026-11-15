@@ -124,6 +124,28 @@ class TestIJKVFDisambiguation(unittest.TestCase):
         self.assertEqual(pred, "2", f"Expected '2' but got '{pred}' (note: {note})")
         self.assertLessEqual(probs_out[self.classes.index("V")], 0.02)
 
+    def test_v_with_folded_thumb_does_not_flip_to_k(self):
+        """V sign with thumb folded across palm must predict 'V' and suppress 'K', even if K has hostile prior."""
+        coords = self.canon["V"]
+        probs_in = self._make_probs("K", 0.65, "V", 0.25)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "V", f"Expected 'V' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("K")], 0.02)
+
+    def test_k_with_elevated_thumb_does_not_flip_to_v(self):
+        """K sign with elevated thumb must predict 'K' and suppress 'V'."""
+        coords = self.canon["K"]
+        probs_in = self._make_probs("V", 0.65, "K", 0.25)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "K", f"Expected 'K' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("V")], 0.02)
+
     # -------------------------------------------------------------
     # 3. F vs 9 vs B vs D Disambiguation Tests
     # -------------------------------------------------------------

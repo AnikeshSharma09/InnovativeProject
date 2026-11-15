@@ -572,9 +572,15 @@ class SignPredictor:
         # 6. Exactly 2 Fingers Extended (Index, Middle): 'H', 'K', 'V', '2', '3', 'U', 'R'
         # -------------------------------------------------------------
         elif idx_ext and mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
+            thumb_elev = float((i_mcp[1] - t_tip[1]) / palm)
             is_3_pose = (d_tp_mcp >= 1.00) and (d_tw >= 1.05) and (d_tm_pip >= 0.70)
             is_h_pose = (ratio_xy >= 0.90 or abs(v_idx[0]) > abs(v_idx[1])) and (abs(v_idx[0]) >= 0.15)
-            is_k_pose = (d_tm_pip < 0.42 or (top1_label == "K" and d_tm_pip < 0.52)) and (ratio_xy < 0.90) and (v_idx[1] < -0.10)
+            is_k_geom = (thumb_elev >= -0.08) and (d_ti < 1.20 or d_tm_pip < 0.42)
+            is_v_geom = (thumb_elev < -0.08) or (d_ti >= 1.25 and d_tm_pip >= 0.45)
+
+            p_k = probs[self.classes.index("K")] if "K" in self.classes else 0.0
+            p_v = probs[self.classes.index("V")] if "V" in self.classes else 0.0
+            p_2 = probs[self.classes.index("2")] if "2" in self.classes else 0.0
 
             if is_h_pose:
                 _force_class("H", f"Horizontal 2-finger parallel (ratio={ratio_xy:.2f})", ["V", "2", "U", "R", "K", "W", "6", "1", "G", "P", "Q"])
@@ -582,33 +588,16 @@ class SignPredictor:
                 _force_class("3", f"Thumb+Index+Mid ext (d_tp_mcp={d_tp_mcp:.2f}, d_tw={d_tw:.2f})", ["V", "2", "U", "R", "K", "H", "W", "6", "P", "Q"])
             elif ((i_tip[0] - m_tip[0]) * (i_mcp[0] - m_mcp[0]) < 0) or top1_label == "R":
                 _force_class("R", "Crossed index and middle fingers", ["V", "2", "U", "K", "H", "W", "6", "P", "Q"])
-            elif is_k_pose:
-                # ASL 'K': Thumb placed at middle finger PIP joint, hand pointing upright
-                _force_class("K", f"Thumb at middle PIP joint (d_tm_pip={d_tm_pip:.2f})", ["V", "2", "U", "R", "H", "W", "6", "1", "P", "Q"])
-            elif d_im < 0.32:
+            elif d_im < 0.35:
                 _force_class("U", f"Touching parallel fingers pointing upright (d_im={d_im:.2f})", ["V", "2", "R", "K", "W", "6", "H", "P", "Q"])
+            elif (top1_label == "K" or p_k > p_v) and not (is_v_geom and thumb_elev < -0.15):
+                _force_class("K", f"Thumb elevated at middle PIP (elev={thumb_elev:+.2f}, d_tm_pip={d_tm_pip:.2f})", ["V", "2", "U", "R", "H", "W", "6", "1", "P", "Q"])
+            elif is_k_geom and thumb_elev >= 0.10:
+                _force_class("K", f"Thumb elevated between index and middle (elev={thumb_elev:+.2f})", ["V", "2", "U", "R", "H", "W", "6", "1", "P", "Q"])
+            elif p_2 > p_v:
+                _force_class("2", "Spread 2-finger number pose", ["V", "K", "U", "R", "H", "3", "W", "6", "1", "P", "Q"])
             else:
-                # Spread V-shape: Resolve 'V' vs '2' with zero jumping
-                p_2 = probs[self.classes.index("2")] if "2" in self.classes else 0.0
-                p_v = probs[self.classes.index("V")] if "V" in self.classes else 0.0
-                is_2_geom = (d_tm_pip < 0.55) and (d_ti < 1.20) and (d_tw > 0.98)
-                is_v_geom = (d_tm_pip >= 0.55) or (d_ti >= 1.20)
-                if is_2_geom and (p_2 >= p_v * 0.25 or top1_label == "2"):
-                    target = "2"
-                elif is_v_geom and (p_v >= p_2 * 0.25 or top1_label == "V"):
-                    target = "V"
-                elif top1_label == "2" and p_2 > p_v * 0.80:
-                    target = "2"
-                elif p_2 > p_v and top1_label != "V":
-                    target = "2"
-                else:
-                    target = "V"
-                suppress = ["U", "R", "K", "H", "3", "W", "6", "1", "P", "Q"]
-                if target == "V" and "2" in self.classes:
-                    suppress.append("2")
-                elif target == "2" and "V" in self.classes:
-                    suppress.append("V")
-                _force_class(target, f"Spread V-shape (d_im={d_im:.2f})", suppress)
+                _force_class("V", f"Spread V-shape with folded thumb (elev={thumb_elev:+.2f}, d_tm_pip={d_tm_pip:.2f})", ["2", "K", "U", "R", "H", "3", "W", "6", "1", "P", "Q"])
 
         # -------------------------------------------------------------
         # 7. Three Fingers Extended: 'W' vs '6'
