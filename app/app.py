@@ -30,6 +30,9 @@ import streamlit as st
 # Ensure project root is in sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import importlib
+import prediction.predictor
+importlib.reload(prediction.predictor)
 from prediction.predictor import SignPredictor
 from utils.landmarks_util import (
     draw_styled_landmarks,
@@ -300,8 +303,10 @@ def load_continuous_recognizer():
         return None
 
 
+PREDICTOR_BUILD_VERSION = "2026.11.16.v5_invariants"
+
 @st.cache_resource(show_spinner="Loading Deep Learning LSTM model & Landmark Stabilizers...")
-def load_predictor():
+def load_predictor(build_version: str = PREDICTOR_BUILD_VERSION):
     """Caches the SignPredictor instance to avoid reloading models on every rerun."""
     try:
         return SignPredictor(
@@ -493,6 +498,22 @@ def main():
             "✋ Air-Workspace Meeting Gestures",
             value=True,
             help="Spatial meeting shortcuts: flat palm hold -> mute mic, upward flick -> raise hand, lateral swipe -> slides, double tap -> copy transcript."
+        )
+
+        st.markdown("---")
+        st.subheader("⏱️ Transcript Auto-Commit Controls")
+        auto_commit_enabled = st.toggle(
+            "📝 Auto-Commit Signs to Transcript",
+            value=True,
+            help="Automatically appends signs to the sentence buffer when held stable. Disable to practice without polluting the transcript."
+        )
+        auto_commit_hold_frames = st.slider(
+            "Sign Hold Duration (Frames)",
+            min_value=5,
+            max_value=30,
+            value=12,
+            step=1,
+            help="Number of stable frames required to commit a letter. Increase for more time to position your hand before committing."
         )
 
         with st.expander("🖐️ Biomechanical Hand Calibration", expanded=False):
@@ -1177,13 +1198,13 @@ def main():
                                                     if enable_ambient_hud:
                                                         st.session_state.ambient_hud.trigger_event("COMMIT", c_sign)
                                                     st.toast(f"🚀 Rapid Commit: {c_sign}")
-                                    elif pred.is_stable and pred.stable_label and not pred.is_uncertain:
+                                    elif auto_commit_enabled and pred.is_stable and pred.stable_label and not pred.is_uncertain:
                                         st.session_state.last_stable_char = pred.stable_label
                                         if pred.stable_label == last_auto_char:
                                             auto_commit_counter = 0
                                         else:
                                             auto_commit_counter += 1
-                                            threshold = 5 if pred.stable_label.lower() in ("space", "blank", "del", "delete") else 7
+                                            threshold = 5 if pred.stable_label.lower() in ("space", "blank", "del", "delete") else auto_commit_hold_frames
                                             if auto_commit_counter >= threshold:
                                                 ch = pred.stable_label
                                                 engine.add_character(ch)
@@ -1196,9 +1217,8 @@ def main():
                                                     st.toast("⌫ Deleted Character")
                                     else:
                                         auto_commit_counter = max(0, auto_commit_counter - 1)
-                                        if not pred.hand_detected or pred.kinetic_energy > 0.020:
-                                            last_auto_char = ""
                                         if not pred.hand_detected:
+                                            last_auto_char = ""
                                             last_rendered_phrase = ""
 
                                     # Pause autospace
