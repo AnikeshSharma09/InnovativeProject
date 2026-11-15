@@ -344,6 +344,18 @@ def main():
     with st.sidebar:
         st.header("⚙️ System Control")
 
+        pdf_guide_path = Path("USER_GUIDE.pdf")
+        if pdf_guide_path.exists():
+            with open(pdf_guide_path, "rb") as f_pdf:
+                st.download_button(
+                    label="📥 Download User Guide (PDF)",
+                    data=f_pdf.read(),
+                    file_name="ASL_AI_User_Guide.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    help="Download the complete offline PDF user manual with all feature guides and troubleshooting steps."
+                )
+
         # 1. Paradigm Selector
         st.subheader("🔄 Recognition Paradigm")
         continuous_mode = st.toggle(
