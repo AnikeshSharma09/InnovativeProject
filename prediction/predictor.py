@@ -483,13 +483,26 @@ class SignPredictor:
         # 3. Pinky-Only Extended Signs: 'I', 'J', 'Y'
         # -------------------------------------------------------------
         elif pnk_ext and not idx_ext and not mid_ext and not ring_ext:
+            v_pnk = p_tip - p_mcp
+            ratio_pnk = float(abs(v_pnk[0]) / (abs(v_pnk[1]) + 1e-6))
+            dx_pnk_mcp = float(abs(p_tip[0] - p_mcp[0]) / palm)
+
             is_y_pose = (d_tp >= 1.05) or (d_tm_pip >= 0.70) or (d_ti_mcp >= 0.60 and d_tw >= 0.85) or (top1_label == "Y" and d_tp >= 0.50 and d_tm_pip >= 0.50)
+            is_i_upright = (ratio_pnk < 0.40) and (v_pnk[1] < -0.15) and (dx_pnk_mcp < 0.25)
+            is_j_curved = (ratio_pnk >= 0.50 or dx_pnk_mcp >= 0.30 or v_pnk[1] > -0.15)
+            is_j_motion = (kinetic_energy >= 0.028) and (ratio_pnk >= 0.35 or top1_label == "J" or top2_label == "J")
+
+            p_i = probs[self.classes.index("I")] if "I" in self.classes else 0.0
+            p_j = probs[self.classes.index("J")] if "J" in self.classes else 0.0
+
             if is_y_pose:
                 _force_class("Y", f"Extended thumb + pinky shaka (d_tp={d_tp:.2f}, d_tm_pip={d_tm_pip:.2f})", ["I", "J", "5", "4", "6", "W"])
-            elif kinetic_energy >= 0.028:
-                _force_class("J", f"Dynamic pinky swoop stroke (KE={kinetic_energy:.3f})", ["I", "Y"])
+            elif is_i_upright and (p_i >= p_j * 0.40 or top1_label == "I" or not is_j_curved):
+                _force_class("I", f"Upright vertical pinky point (ratio={ratio_pnk:.2f})", ["J", "Y", "5", "4", "6", "W"])
+            elif is_j_curved or is_j_motion or (top1_label == "J" and p_j > p_i * 0.40):
+                _force_class("J", f"Curved/dynamic pinky J-swoop (ratio={ratio_pnk:.2f}, KE={kinetic_energy:.3f})", ["I", "Y", "5", "4", "6", "W"])
             else:
-                _force_class("I", "Static upright pinky hold", ["J", "Y", "5", "4", "6", "W"])
+                _force_class("I", "Pinky hold fallback", ["J", "Y", "5", "4", "6", "W"])
 
         # -------------------------------------------------------------
         # 4. Number Contact Loops: '6', '7', '8', '9' and Letter 'F'

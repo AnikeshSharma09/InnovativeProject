@@ -52,6 +52,28 @@ class TestIJKVFDisambiguation(unittest.TestCase):
         self.assertEqual(pred, "J", f"Expected 'J' but got '{pred}' (note: {note})")
         self.assertLessEqual(probs_out[self.classes.index("I")], 0.02)
 
+    def test_static_j_pose_retains_j(self):
+        """Static hold of curved J pose (KE=0.008) must stay 'J' and NOT flip to 'I'."""
+        coords = self.canon["J"]
+        probs_in = self._make_probs("J", 0.85, "I", 0.05)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.008  # Stationary hold
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "J", f"Expected 'J' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("I")], 0.02)
+
+    def test_moving_i_pose_retains_i(self):
+        """Moving hand holding upright I (KE=0.038) must stay 'I' and NOT flip to 'J'."""
+        coords = self.canon["I"]
+        probs_in = self._make_probs("I", 0.85, "J", 0.05)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.038  # Tremor or movement
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "I", f"Expected 'I' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("J")], 0.02)
+
     # -------------------------------------------------------------
     # 2. V vs 2 vs K Disambiguation Tests
     # -------------------------------------------------------------
