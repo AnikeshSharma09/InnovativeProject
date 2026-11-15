@@ -269,20 +269,21 @@ Educational masterclass designed for beginners and non-signers:
 #### 2. One-Finger Index Extended Cluster (`1`, `D`, `G`, `Z`, `L`, `X`)
 | Sign | Index Direction | Thumb State | Decisive Geometric Feature |
 |---|---|---|---|
-| **`1`** | Upright vertical ($\frac{\|dx\|}{\|dy\|} < 0.40$) | Folded across fist | Thumb resting on middle finger ($d_{tm\_tip} \ge 0.22$). |
-| **`D`** | Upright vertical ($\frac{\|dx\|}{\|dy\|} < 0.40$) | Touching middle fingertip in closed loop | $d_{tm\_tip} < 0.22$ circle loop between thumb and middle finger. |
-| **`G`** | Strictly horizontal sideways ($\frac{\|dx\|}{\|dy\|} \ge 1.25$) | Parallel alongside index finger | $d_{tm\_mcp} \ge 0.45, \cos(thumb, idx) > 0.65$. Thumb is NOT folded. |
-| **`Z`** | Diagonal tilt ($30^\circ-60^\circ$) OR air-drawn | Folded across fist | Air-drawn zigzag ($KE \ge 0.028$) OR static diagonal hold ($0.40 \le \frac{\|dx\|}{\|dy\|} < 1.25$). |
-| **`L`** | Upright vertical | Extended laterally at $90^\circ$ right angle | $thumb\_ext == True$, $d_{ti\_mcp} \ge 0.60, d_{tm} > 0.50, \cos < 0.65$. |
-| **`X`** | Hooked / bent at PIP & DIP joint | Folded on fist | Index hook curvature ($d_{tip\_pip} < 0.38$). |
+| **`1`** | Upright index point ($\frac{\|dx\|}{\|dy\|} < 1.20$) | Folded across fist ($d_{tm} \ge 0.20$) | Static upright index pointing up, thumb resting on middle finger. |
+| **`D`** | Upright index point ($\frac{\|dx\|}{\|dy\|} < 1.20$) | Touching middle fingertip in closed circle loop | $d_{tm} < 0.20$ and $d_{tip\_pip} \ge 0.40$, circular "O" loop at base of upright index. |
+| **`G`** | Strictly horizontal sideways ($\frac{\|dx\|}{\|dy\|} \ge 1.45, \|dx\| \ge 0.18$) | Parallel alongside index finger | Finger points sideways across body, $d_{tm\_mcp} \ge 0.40, \cos(thumb, idx) > 0.60$. Thumb is NOT folded. |
+| **`Z`** | Dynamic air-drawn stroke ($KE \ge 0.028$) OR diagonal tilt ($0.45 \le \frac{\|dx\|}{\|dy\|} < 1.45$) | Folded across fist | Air-drawn zigzag ($KE \ge 0.028$) tracing Z in the air, or static diagonal hold with model prior. |
+| **`L`** | Upright index | Extended laterally at $90^\circ$ right angle | $thumb\_ext == True$, $d_{ti\_mcp} \ge 0.55, d_{tm} > 0.45, \cos < 0.65$. |
+| **`X`** | Hooked / bent at PIP & DIP joint | Folded on fist | Index hook curvature ($d_{tip\_pip} < 0.38$). Never confuses with upright `D` or `1`. |
 
-#### 3. Two-Finger Extended Cluster (`V`, `2`, `3`, `U`, `R`, `K`, `H`)
+#### 3. Two-Finger Extended Cluster (`V`, `2`, `K`, `3`, `U`, `R`, `H`)
 | Sign | Finger Configuration | Hand Orientation | Thumb State | Decisive Feature |
 |---|---|---|---|---|
-| **`V` / `2`** | Index + Middle upright, spread apart | Upright | Folded into palm | Spread peace sign ($d_{im} \ge 0.35$). |
+| **`K`** | Index upright, Middle angled forward | Upright | **Thumb placed at middle PIP joint** | $d_{tm\_pip} < 0.36$ and $t_{tip}[1] < i_{mcp}[1] + 0.15 \cdot palm$. Never confused with `V` or `2`. |
+| **`V`** | Index + Middle upright, spread V-shape ($d_{im} \ge 0.35$) | Upright | Folded across palm/ring finger | Spread peace sign, $d_{tm\_pip} \ge 0.55, d_{ti} \ge 1.20$. `2` is suppressed to prevent frame-to-frame jumping. |
+| **`2`** | Index + Middle upright, spread V-shape ($d_{im} \ge 0.35$) | Upright | Tucked tightly over ring finger | Number 2 gesture, $d_{tm\_pip} < 0.55, d_{ti} < 1.20, d_{tw} > 0.98$. `V` is suppressed to ensure stability. |
 | **`U`** | Index + Middle upright, touching parallel | Upright | Folded into palm | Touching fingers ($d_{im} < 0.35$). |
 | **`R`** | Index + Middle crossed over each other | Upright | Folded into palm | Crossed fingers ($(i_{tip}-m_{tip}) \cdot (i_{mcp}-m_{mcp}) < 0$). |
-| **`K`** | Index upright, Middle angled forward | Upright | Thumb touches middle PIP | $d_{tm\_pip} < 0.28$, thumb at middle PIP joint. |
 | **`H`** | Index + Middle parallel | Horizontal sideways | Tucked beneath index | $\frac{\|dx\|}{\|dy\|} \ge 1.10$, horizontal 2-finger stack. |
 | **`3`** | Index + Middle + Thumb extended | Upright | Extended laterally | $thumb\_ext == True$ ($d_{tp\_mcp} \ge 0.80, d_{tw} \ge 0.75$). |
 
@@ -290,10 +291,11 @@ Educational masterclass designed for beginners and non-signers:
 | Sign | Extended Upright Fingers | Pinched Finger Loop | Decisive Feature |
 |---|---|---|---|
 | **`W`** | Index + Middle + Ring (spread fan) | None (thumb folded over pinky) | 3-finger spread fan ($d_{im}, d_{mr} \ge 0.18$), open pinky loop ($d_{tp} \ge 0.25$). |
-| **`6`** | Index + Middle + Ring | **Thumb touches Pinky tip** | Contact loop $d_{tp} < 0.22$. |
+| **`6`** | Index + Middle + Ring | **Thumb touches Pinky tip** | Contact loop $d_{tp} < 0.22$. Suppresses `W`, `V`, `3`. |
 | **`7`** | Index + Middle + Pinky | **Thumb touches Ring tip** | Contact loop $d_{tr} < 0.22$. |
 | **`8`** | Index + Ring + Pinky | **Thumb touches Middle tip** | Contact loop $d_{tm} < 0.22$. |
-| **`9` / `F`** | Middle + Ring + Pinky | **Thumb touches Index tip** | Contact loop $d_{ti} < 0.22$ (closed circle). |
+| **`F`** | Middle + Ring + Pinky upright | **Thumb touches Index tip (OK sign)** | Contact loop $d_{ti} < 0.28$, circle projected outward ($d_{tm} < 0.80, d_{ti\_mcp} \ge 0.55$). Never swallowed into `B` or `9`. |
+| **`9`** | Middle + Ring + Pinky upright | **Thumb touches Index tip (Number 9)** | Contact loop $d_{ti} < 0.28$, circle tight against index knuckle base ($d_{tm} \ge 0.85$ or $d_{ti\_mcp} < 0.55$). |
 
 #### 5. Four/Five-Finger Open Hands (`4`, `B`, `5`, `C`, `space`)
 | Sign | Finger Spacing | Thumb State | Decisive Feature |
