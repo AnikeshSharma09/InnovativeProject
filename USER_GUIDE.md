@@ -253,35 +253,71 @@ Educational masterclass designed for beginners and non-signers:
    * Anatomical finger positioning instructions.
    * Thumb placement rules.
    * Common mistakes to avoid.
-2. **Anatomical Invariants for Confused Cluster (`V`, `3`, `W`, `6`, `U`):**
 
-| Sign | Upright Fingers | Ring Finger | Thumb State | Pinky Interaction | Mathematical Rule |
-|---|---|---|---|---|---|
-| **`V`** | Index + Middle (Spread) | **Curled** | **Folded into palm** | Curled | $d_{im} \ge 0.17$, Ring Curled, $d_{tp\_mcp} < 0.65$ |
-| **`3`** | Index + Middle + Thumb | **Curled** | **Extended laterally** | Curled | Thumb Extended ($d_{tp\_mcp} \ge 0.80, d_{tw} \ge 0.75$), Ring Curled |
-| **`W`** | Index + Middle + Ring (Spread) | **Extended** | Folded over pinky | Curled (Open Loop) | Ring Extended, $d_{tp} \ge 0.25$ or Spread ($d_{im}, d_{mr} \ge 0.18$) |
-| **`6`** | Index + Middle + Ring | **Extended** | Touching pinky tip | **Pinched to Thumb Tip** | Ring Extended, Pinch Loop $d_{tp} < 0.25$ |
-| **`U`** | Index + Middle (Touching) | **Curled** | **Folded into palm** | Curled | $d_{im} < 0.17$ (parallel stack), Ring Curled, Thumb Folded |
+### Complete ASL Alphabet (A-Z) & Numbers (0-9) Anatomical Invariant Matrix
 
-3. **Kinematic & Geometric Invariants for Index-Point Cluster (`G`, `Z`, `1`, `D`):**
+#### 1. Zero-Finger Fist Cluster (`A`, `S`, `T`, `E`, `0`, `O`)
+| Sign | Thumb Position | Decisive Geometric Feature | Common Confusion Avoided |
+|---|---|---|---|
+| **`A`** | Resting upright along outer edge of index MCP | $d_{tm\_mcp} \ge 0.35$, thumb NOT across front of fingers | Never confuses with `S` or `E`. |
+| **`S`** | Folded across the *front* of middle/index fingers | $d_{tm\_mcp} < 0.35$, covers middle finger MCP | Distinguishes from `A` (lateral) and `T` (between). |
+| **`T`** | Tucked *between* index and middle knuckles | Thumb tip protrudes laterally between index & middle MCP | Never confuses with `S` or `A`. |
+| **`E`** | Tucked tightly under curled fingertips | All 4 fingertips touch thumb ($d_{tr} < 0.32, d_{tp} < 0.32$) | Distinguishes from `S` and `O`. |
+| **`O`** | Curled in round circular contact loop with fingertips | Closed circular loop ($d_{ti} < 0.25, d_{tm} < 0.32$, tight aspect) | Distinguishes from `C` (open aperture) & `0`. |
+| **`0`** | Compressed narrow oval contact loop with fingertips | Flatter oval zero ($aspect \ge 0.29$ or $d_{tm} \ge 0.22$) | Distinguishes from circular `O`. |
 
-| Sign | Motion State | Hand Orientation | Thumb Placement | Decisive Feature |
+#### 2. One-Finger Index Extended Cluster (`1`, `D`, `G`, `Z`, `L`, `X`)
+| Sign | Index Direction | Thumb State | Decisive Geometric Feature |
+|---|---|---|---|
+| **`1`** | Upright vertical ($\frac{\|dx\|}{\|dy\|} < 0.40$) | Folded across fist | Thumb resting on middle finger ($d_{tm\_tip} \ge 0.22$). |
+| **`D`** | Upright vertical ($\frac{\|dx\|}{\|dy\|} < 0.40$) | Touching middle fingertip in closed loop | $d_{tm\_tip} < 0.22$ circle loop between thumb and middle finger. |
+| **`G`** | Strictly horizontal sideways ($\frac{\|dx\|}{\|dy\|} \ge 1.25$) | Parallel alongside index finger | $d_{tm\_mcp} \ge 0.45, \cos(thumb, idx) > 0.65$. Thumb is NOT folded. |
+| **`Z`** | Diagonal tilt ($30^\circ-60^\circ$) OR air-drawn | Folded across fist | Air-drawn zigzag ($KE \ge 0.028$) OR static diagonal hold ($0.40 \le \frac{\|dx\|}{\|dy\|} < 1.25$). |
+| **`L`** | Upright vertical | Extended laterally at $90^\circ$ right angle | $thumb\_ext == True$, $d_{ti\_mcp} \ge 0.60, d_{tm} > 0.50, \cos < 0.65$. |
+| **`X`** | Hooked / bent at PIP & DIP joint | Folded on fist | Index hook curvature ($d_{tip\_pip} < 0.38$). |
+
+#### 3. Two-Finger Extended Cluster (`V`, `2`, `3`, `U`, `R`, `K`, `H`)
+| Sign | Finger Configuration | Hand Orientation | Thumb State | Decisive Feature |
 |---|---|---|---|---|
-| **`G`** | **Static Hold** ($KE < 0.025$) | **Strictly Horizontal** ($\frac{\|dx\|}{\|dy\|} \ge 1.25$) | **Parallel Alongside Index** ($d_{tm\_mcp} \ge 0.45$) | Horizontal index point with uncurled parallel thumb ($\cos > 0.65$). |
-| **`Z`** | **Active Motion** ($KE \ge 0.028$) **or Static Hold** | **Diagonal Tilt** ($30^\circ-60^\circ$, $0.40 \le \frac{\|dx\|}{\|dy\|} < 1.25$) | **Folded on Fist** ($d_{tm\_mcp} < 0.45$) | Dynamic air-drawn stroke ($KE \ge 0.028$) OR static diagonal index hold with thumb curled over fist. |
-| **`1`** | **Static Hold** ($KE < 0.025$) | **Straight Up** ($\frac{\|dx\|}{\|dy\|} < 0.40$) | Folded across fist | Static vertical point hold, thumb resting across middle finger. |
-| **`D`** | **Static Hold** ($KE < 0.025$) | **Straight Up** ($\frac{\|dx\|}{\|dy\|} < 0.40$) | **Pinched to middle tip** ($d_{tm\_tip} < 0.22$) | Thumb touches middle fingertip in a closed circular loop. |
+| **`V` / `2`** | Index + Middle upright, spread apart | Upright | Folded into palm | Spread peace sign ($d_{im} \ge 0.35$). |
+| **`U`** | Index + Middle upright, touching parallel | Upright | Folded into palm | Touching fingers ($d_{im} < 0.35$). |
+| **`R`** | Index + Middle crossed over each other | Upright | Folded into palm | Crossed fingers ($(i_{tip}-m_{tip}) \cdot (i_{mcp}-m_{mcp}) < 0$). |
+| **`K`** | Index upright, Middle angled forward | Upright | Thumb touches middle PIP | $d_{tm\_pip} < 0.28$, thumb at middle PIP joint. |
+| **`H`** | Index + Middle parallel | Horizontal sideways | Tucked beneath index | $\frac{\|dx\|}{\|dy\|} \ge 1.10$, horizontal 2-finger stack. |
+| **`3`** | Index + Middle + Thumb extended | Upright | Extended laterally | $thumb\_ext == True$ ($d_{tp\_mcp} \ge 0.80, d_{tw} \ge 0.75$). |
 
-4. **Disambiguation Cheat-Sheets**:
-   * **`G` vs `Z`**: 
-     - **`G`** requires a **strictly horizontal** index finger pointing sideways ($\frac{\|dx\|}{\|dy\|} \ge 1.25$) AND an **uncurled thumb extended parallel** alongside the index finger.
-     - **`Z`** is either **dynamically traced in the air** (zigzag stroke) OR held as a **diagonal index point** ($30^\circ-60^\circ$ inward/outward) with the **thumb folded across the fist**. Natural hand tilt in front of the camera will never accidentally trigger `G`!
-   * **`V` vs `3`**: In **`V`**, the thumb is folded across the palm. In ASL **`3`**, the thumb is sticking OUT to the side.
-   * **`V` vs `W`**: In **`V`**, only 2 fingers are upright (ring is curled). In **`W`**, 3 fingers are upright (ring is extended).
-   * **`W` vs `6`**: In **`W`**, fingers form a spread fan and thumb does not touch pinky tip. In **`6`**, thumb and pinky touch tip-to-tip.
-   * **`U` vs `V`**: Index and middle fingers pressed touching parallel (`U`) vs spread apart in a "V" (`V`).
-   * **`C` vs `O`**: Open semi-circle gap $\ge 40\%$ (`C`) vs fingertips touching thumb in a closed loop (`O`).
-   * **`Z` vs `1`**: Diagonal index point or dynamic stroke (`Z`) vs static upright vertical index point (`1`).
+#### 4. Three-Finger Extended & Number Contact Pinches (`W`, `6`, `7`, `8`, `9`, `F`)
+| Sign | Extended Upright Fingers | Pinched Finger Loop | Decisive Feature |
+|---|---|---|---|
+| **`W`** | Index + Middle + Ring (spread fan) | None (thumb folded over pinky) | 3-finger spread fan ($d_{im}, d_{mr} \ge 0.18$), open pinky loop ($d_{tp} \ge 0.25$). |
+| **`6`** | Index + Middle + Ring | **Thumb touches Pinky tip** | Contact loop $d_{tp} < 0.22$. |
+| **`7`** | Index + Middle + Pinky | **Thumb touches Ring tip** | Contact loop $d_{tr} < 0.22$. |
+| **`8`** | Index + Ring + Pinky | **Thumb touches Middle tip** | Contact loop $d_{tm} < 0.22$. |
+| **`9` / `F`** | Middle + Ring + Pinky | **Thumb touches Index tip** | Contact loop $d_{ti} < 0.22$ (closed circle). |
+
+#### 5. Four/Five-Finger Open Hands (`4`, `B`, `5`, `C`, `space`)
+| Sign | Finger Spacing | Thumb State | Decisive Feature |
+|---|---|---|---|
+| **`4`** | 4 fingers upright, spread apart | Folded across palm | $d_{im} \ge 0.30$ or $d_{mr} \ge 0.30$, thumb folded into palm. |
+| **`B`** | 4 fingers upright, pressed together | Folded across palm | $d_{im} < 0.28$ and $d_{mr} < 0.28$, fingers closed flat stack. |
+| **`5`** | 5 digits all spread wide open | Extended wide open | $thumb\_ext == True$ ($d_{tp\_mcp} \ge 0.85, d_{tw} \ge 0.75$), open 5-digit star. |
+| **`C`** | 4 fingers curved in "C" arc | Curved opposing fingers | Open circular aperture ($0.35 \le \min(d_{ti}, d_{tm}) \le 0.85$). |
+| **`space`** | 4 fingers flat horizontal | Flat / resting | Flat horizontal hand orientation ($ratio_{xy} \ge 1.10$). |
+
+#### 6. Pinky & Shaka Cluster (`I`, `J`, `Y`)
+| Sign | Extended Digits | Motion Dynamics | Decisive Feature |
+|---|---|---|---|
+| **`I`** | Pinky only | **Static Hold** ($KE < 0.025$) | Static vertical pinky finger hold, thumb on fist. |
+| **`J`** | Pinky only | **Dynamic Motion** ($KE \ge 0.030$) | Air-drawn hook / scoop motion curve in the air. |
+| **`Y`** | Pinky + Thumb | Any | Classic "Hang Loose / Shaka" sign ($d_{tp} \ge 1.40, thumb\_ext$). |
+
+#### 7. Downward Pointing Cluster (`P`, `Q`) & Draped Fingers (`M`, `N`)
+| Sign | Hand Direction | Finger Configuration | Decisive Feature |
+|---|---|---|---|
+| **`P`** | Pointing downwards | Index + Middle extended down | Thumb touches middle finger (upside-down 'K'). |
+| **`Q`** | Pointing downwards | Index pointing down, thumb along index | Middle finger curled into palm (upside-down 'G'). |
+| **`M`** | Draped downwards | 3 fingers draped over thumb ($v_{idx}[1] > 0.40$) | Ring finger extended downward over thumb. |
+| **`N`** | Draped downwards | 2 fingers draped over thumb ($v_{idx}[1] > 0.40$) | Ring finger curled (only index and middle draped). |
 
 ---
 

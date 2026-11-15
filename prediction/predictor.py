@@ -385,29 +385,48 @@ class SignPredictor:
         # Thumb kinematics (abduction & extension)
         d_ti_mcp = float(np.linalg.norm(t_tip - i_mcp) / palm)
         d_tm_mcp = float(np.linalg.norm(t_tip - m_mcp) / palm)
-        d_tw = float(np.linalg.norm(t_tip - w) / palm)
+        d_tr_mcp = float(np.linalg.norm(t_tip - r_mcp) / palm)
         d_tp_mcp = float(np.linalg.norm(t_tip - p_mcp) / palm)
+        d_tw = float(np.linalg.norm(t_tip - w) / palm)
         thumb_ext = (d_tp_mcp >= 0.80) and (d_tw >= 0.75)
 
         # Distances normalized by palm length
         d_im = float(np.linalg.norm(i_tip - m_tip) / palm)
         d_mr = float(np.linalg.norm(m_tip - r_tip) / palm)
-        d_tp = float(np.linalg.norm(t_tip - p_tip) / palm)
         d_ti = float(np.linalg.norm(t_tip - i_tip) / palm)
         d_tm = float(np.linalg.norm(t_tip - m_tip) / palm)
+        d_tr = float(np.linalg.norm(t_tip - r_tip) / palm)
+        d_tp = float(np.linalg.norm(t_tip - p_tip) / palm)
+        d_tm_pip = float(np.linalg.norm(t_tip - m_pip) / palm)
+        d_tip_pip = float(np.linalg.norm(i_tip - i_pip) / palm)
 
-        # Hand orientation (upright vs horizontal)
+        # Hand orientation (upright vs horizontal vs downward)
         v_idx = i_tip - i_mcp
         v_thumb = t_tip - t_mcp
         norm_v_thumb = np.linalg.norm(v_thumb[:2])
         norm_v_idx = np.linalg.norm(v_idx[:2])
         cos_thumb_idx = float(np.dot(v_thumb[:2], v_idx[:2]) / (norm_v_thumb * norm_v_idx + 1e-6))
-        is_horizontal = (abs(v_idx[0]) > abs(v_idx[1]) * 0.70) or (v_idx[1] > -0.05)
+        ratio_xy = float(abs(v_idx[0]) / (abs(v_idx[1]) + 1e-6))
+        is_downward = (idx_ext or mid_ext) and (w[1] < i_mcp[1] + 0.10) and (v_idx[1] > -0.05)
+        is_horizontal = (ratio_xy >= 1.10) and not is_downward
 
         # Specialized poses: K and R guards
-        d_tm_pip = float(np.linalg.norm(t_tip - m_pip) / palm)
         is_k_pose = (top1_label == "K" or top2_label == "K") and (d_tm_pip < 0.28) and (v_idx[1] < -0.15)
         is_r_pose = (top1_label == "R" or top2_label == "R") and ((i_tip[0] - m_tip[0]) * (i_mcp[0] - m_mcp[0]) < 0)
+
+        def _force_class(target_cls: str, reason: str, suppress_classes: list = None):
+            nonlocal probs
+            if target_cls not in self.classes:
+                return
+            if suppress_classes:
+                for wrong in suppress_classes:
+                    if wrong in self.classes:
+                        probs[self.classes.index(wrong)] = min(probs[self.classes.index(wrong)], 0.005)
+            t_idx = self.classes.index(target_cls)
+            probs = probs * 0.05
+            probs[t_idx] = 0.88
+            probs = probs / np.sum(probs)
+            disambig_notes.append(f"{reason} -> '{target_cls}'")
 
         def _disambiguate_pair(lbl_a: str, lbl_b: str, favor_a: bool, reason: str):
             nonlocal probs
@@ -438,186 +457,152 @@ class SignPredictor:
                 probs[idx_a] = p_low
                 disambig_notes.append(f"{reason} -> '{lbl_b}'")
 
-        # -------------------------------------------------------------
-        # 1. ASL 'V', '3', 'W', '6', 'U', '2' Mutually Exclusive Disambiguation
-        # Preconditions: Index & Middle extended upright, Pinky curled,
-        # Hand held upright (not horizontal sideways like 'H' or 'G'), not K or R pose.
-        # -------------------------------------------------------------
-        if idx_ext and mid_ext and not pnk_ext and not is_horizontal and not is_k_pose and not is_r_pose:
-            if not ring_ext:
-                # ---------------------------------------------------------
-                # CASE A: Ring Finger is CURLED (not ring_ext).
-                # 2 upright fingers (Index, Middle). Physically impossible to be 'W' or '6'.
-                # ---------------------------------------------------------
-                for wrong_cls in ["W", "6"]:
-                    if wrong_cls in self.classes:
-                        probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+        # =============================================================
+        # COMPREHENSIVE ANATOMICAL & KINEMATIC DISAMBIGUATION (0-9, A-Z)
+        # =============================================================
 
-                if thumb_ext:
-                    # ASL '3': Thumb extended outward, Index and Middle upright
-                    for wrong_cls in ["V", "W", "6", "U", "2"]:
-                        if wrong_cls in self.classes:
-                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                    if "3" in self.classes:
-                        target_idx = self.classes.index("3")
-                        probs = probs * 0.05
-                        probs[target_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append(f"Thumb+Index+Mid ext (d_tp_mcp={d_tp_mcp:.2f}, d_tw={d_tw:.2f}) -> '3'")
-                else:
-                    # Thumb folded into palm. Suppress '3', 'W', '6'.
-                    for wrong_cls in ["3", "W", "6"]:
-                        if wrong_cls in self.classes:
-                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-
-                    if d_im >= 0.17:
-                        # Fingers spread apart in peace / V shape -> 'V' (or '2')
-                        if "U" in self.classes:
-                            probs[self.classes.index("U")] = min(probs[self.classes.index("U")], 0.005)
-                        target_cls = "2" if (top1_label == "2" and "2" in self.classes) else "V"
-                        if target_cls in self.classes:
-                            target_idx = self.classes.index(target_cls)
-                            probs = probs * 0.05
-                            probs[target_idx] = 0.88
-                            probs = probs / np.sum(probs)
-                            disambig_notes.append(f"Spread V-shape (d_im={d_im:.2f}) -> '{target_cls}'")
-                    else:
-                        # Fingers touching in parallel -> 'U'
-                        for wrong_cls in ["V", "2"]:
-                            if wrong_cls in self.classes:
-                                probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                        if "U" in self.classes:
-                            target_idx = self.classes.index("U")
-                            probs = probs * 0.05
-                            probs[target_idx] = 0.88
-                            probs = probs / np.sum(probs)
-                            disambig_notes.append(f"Touching parallel fingers (d_im={d_im:.2f}) -> 'U'")
+        # -------------------------------------------------------------
+        # 1. ASL 'M' vs 'N': Fingers Draped Downward Over Thumb
+        # -------------------------------------------------------------
+        if v_idx[1] > 0.40 and (idx_ext or mid_ext):
+            if ring_ext:
+                _force_class("M", "3 fingers draped downward over thumb", ["N", "W", "3", "del"])
             else:
-                # ---------------------------------------------------------
-                # CASE B: Ring Finger is EXTENDED (ring_ext).
-                # 3 upright fingers (Index, Middle, Ring). Physically impossible to be 'V', '3', 'U', '2'.
-                # ---------------------------------------------------------
-                for wrong_cls in ["V", "3", "U", "2"]:
-                    if wrong_cls in self.classes:
-                        probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-
-                # ASL '6': Thumb touches Pinky tip to form a pinch loop (d_tp < 0.25)
-                # ASL 'W': 3 fingers spread fan-out (d_im >= 0.18, d_mr >= 0.18), thumb not pinching pinky tip (d_tp >= 0.25)
-                is_pinched_6 = (d_tp < 0.25) and not (d_im >= 0.26 and d_mr >= 0.26 and d_tp > 0.18)
-
-                if is_pinched_6:
-                    if "W" in self.classes:
-                        probs[self.classes.index("W")] = min(probs[self.classes.index("W")], 0.005)
-                    if "6" in self.classes:
-                        target_idx = self.classes.index("6")
-                        probs = probs * 0.05
-                        probs[target_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append(f"Thumb-pinky contact loop (d_tp={d_tp:.2f}) -> '6'")
-                else:
-                    if "6" in self.classes:
-                        probs[self.classes.index("6")] = min(probs[self.classes.index("6")], 0.005)
-                    if "W" in self.classes:
-                        target_idx = self.classes.index("W")
-                        probs = probs * 0.05
-                        probs[target_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append(f"3-finger spread fan (d_im={d_im:.2f}, d_mr={d_mr:.2f}) -> 'W'")
+                _force_class("N", "2 fingers draped downward over thumb", ["M", "W", "3", "del"])
 
         # -------------------------------------------------------------
-        # 2. ASL 'H' (2-Finger Horizontal) Disambiguation
+        # 2. Downward Signs: 'P' vs 'Q'
         # -------------------------------------------------------------
-        if idx_ext and mid_ext and not ring_ext and not pnk_ext and is_horizontal and d_im < 0.35:
-            if "H" in self.classes:
-                h_idx = self.classes.index("H")
-                if probs[h_idx] < 0.70:
-                    probs = probs * 0.05
-                    probs[h_idx] = 0.88
-                    probs = probs / np.sum(probs)
-                    disambig_notes.append("Horizontal 2-finger parallel -> 'H'")
-
-        # -------------------------------------------------------------
-        # 3. ASL 'G' vs 'Z' vs '1' vs 'D' (1-Finger Index Extended) Disambiguation
-        # Preconditions: Only Index extended, Middle/Ring/Pinky curled into fist,
-        # Hand not pointing downward (P/Q guard).
-        # -------------------------------------------------------------
-        is_1finger = idx_ext and not mid_ext and not ring_ext and not pnk_ext and (v_idx[1] <= 0.15)
-        is_l_pose = (top1_label == "L" or top2_label == "L") and (cos_thumb_idx < 0.40) and (d_ti_mcp > 0.50)
-
-        if is_1finger and not is_l_pose:
-            # ---------------------------------------------------------
-            # CASE A: Dynamic Kinematic Motion (kinetic_energy >= 0.028)
-            # ASL 'Z' is uniquely an air-drawn letter stroke.
-            # Static signs ('G', '1', 'D') cannot be executed in high-velocity drawing motion.
-            # ---------------------------------------------------------
-            if kinetic_energy >= 0.028:
-                for wrong_cls in ["G", "1", "D"]:
-                    if wrong_cls in self.classes:
-                        probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                if "Z" in self.classes:
-                    z_idx = self.classes.index("Z")
-                    probs = probs * 0.05
-                    probs[z_idx] = 0.88
-                    probs = probs / np.sum(probs)
-                    disambig_notes.append(f"Dynamic stroke trajectory (KE={kinetic_energy:.3f}) -> 'Z'")
+        elif (top1_label in ("P", "Q") or top2_label in ("P", "Q") or (is_downward and v_idx[0] < -0.25)):
+            if d_tm < 0.35:
+                _force_class("P", f"Downward hand with middle finger touch (d_tm={d_tm:.2f})", ["Q", "G", "K", "1"])
             else:
-                # ---------------------------------------------------------
-                # CASE B: Static Hold (kinetic_energy < 0.028)
-                # Differentiate G (horizontal index + parallel extended thumb)
-                # vs Z (diagonal index hold with thumb folded across fist)
-                # vs D (vertical index with thumb-middle circular loop)
-                # vs 1 (vertical index with thumb folded across fist).
-                # ---------------------------------------------------------
-                ratio_xy = float(abs(v_idx[0]) / (abs(v_idx[1]) + 1e-6))
+                _force_class("Q", "Downward index point with thumb along index", ["P", "G", "1", "K"])
+
+        # -------------------------------------------------------------
+        # 3. Pinky-Only Extended Signs: 'I', 'J', 'Y'
+        # -------------------------------------------------------------
+        elif pnk_ext and not idx_ext and not mid_ext and not ring_ext:
+            if thumb_ext or d_tp >= 1.40:
+                _force_class("Y", f"Extended thumb + pinky shaka (d_tp={d_tp:.2f})", ["I", "J"])
+            elif kinetic_energy >= 0.030 or (top1_label == "J" and kinetic_energy >= 0.020):
+                _force_class("J", f"Dynamic pinky swoop stroke (KE={kinetic_energy:.3f})", ["I", "Y"])
+            else:
+                _force_class("I", "Static upright pinky hold", ["J", "Y"])
+
+        # -------------------------------------------------------------
+        # 4. Number Contact Loops: '6', '7', '8', '9' and Letter 'F'
+        # -------------------------------------------------------------
+        elif d_tp < 0.22 and idx_ext and mid_ext and ring_ext:
+            _force_class("6", f"Thumb-pinky contact loop (d_tp={d_tp:.2f})", ["W", "7", "8", "9", "F"])
+        elif d_tr < 0.22 and idx_ext and mid_ext and pnk_ext:
+            _force_class("7", f"Thumb-ring contact loop (d_tr={d_tr:.2f})", ["6", "8", "9", "F"])
+        elif d_tm < 0.22 and idx_ext and ring_ext and pnk_ext:
+            _force_class("8", f"Thumb-middle contact loop (d_tm={d_tm:.2f})", ["6", "7", "9", "F"])
+        elif d_ti < 0.22 and mid_ext and ring_ext and pnk_ext:
+            target = "9" if (top1_label == "9" or top2_label == "9") else "F"
+            _force_class(target, f"Thumb-index contact circle (d_ti={d_ti:.2f})", ["6", "7", "8", "B", "D"])
+
+        # -------------------------------------------------------------
+        # 5. Exactly 1 Finger Extended (Index): 'G', 'Z', '1', 'D', 'L', 'X'
+        # -------------------------------------------------------------
+        elif idx_ext and not mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
+            if d_tm < 0.22 and ratio_xy < 0.40:
+                _force_class("D", f"Thumb-middle tip circle loop (d_tm={d_tm:.2f})", ["G", "Z", "1", "L", "X"])
+            elif thumb_ext and d_ti_mcp >= 0.60 and d_tm > 0.50 and ratio_xy < 0.50 and cos_thumb_idx < 0.65:
+                _force_class("L", f"L-shape upright index with extended thumb (d_ti_mcp={d_ti_mcp:.2f})", ["1", "D", "G", "Z", "X"])
+            elif (d_tip_pip < 0.38) or (top1_label == "X" and d_tip_pip < 0.45):
+                _force_class("X", f"Bent index hook (d_tip_pip={d_tip_pip:.2f})", ["1", "D", "G", "Z"])
+            elif kinetic_energy >= 0.028:
+                _force_class("Z", f"Dynamic stroke trajectory (KE={kinetic_energy:.3f})", ["G", "1", "D", "X"])
+            else:
                 is_thumb_folded = d_tm_mcp < 0.45
                 is_g_pose = (ratio_xy >= 1.25 or v_idx[1] > -0.05) and (not is_thumb_folded) and (cos_thumb_idx > 0.65)
-
                 if is_g_pose:
-                    for wrong_cls in ["Z", "1", "D"]:
-                        if wrong_cls in self.classes:
-                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                    if "G" in self.classes:
-                        g_idx = self.classes.index("G")
-                        probs = probs * 0.05
-                        probs[g_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append("Static horizontal index point with parallel thumb -> 'G'")
-                elif d_tm < 0.22 and ratio_xy < 0.40:
-                    # Static upright pointing with thumb touching middle tip in a circular loop -> 'D'
-                    for wrong_cls in ["G", "Z", "1"]:
-                        if wrong_cls in self.classes:
-                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                    if "D" in self.classes:
-                        d_idx = self.classes.index("D")
-                        probs = probs * 0.05
-                        probs[d_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append(f"Thumb-middle tip loop (d_tm={d_tm:.2f}) -> 'D'")
-                elif ratio_xy >= 0.40 or ((top1_label == "Z" or top2_label == "Z") and ratio_xy >= 0.30):
-                    # Static diagonal index point (ASL 'Z' handshape) with folded thumb -> 'Z'
-                    for wrong_cls in ["G", "1", "D"]:
-                        if wrong_cls in self.classes:
-                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                    if "Z" in self.classes:
-                        z_idx = self.classes.index("Z")
-                        probs = probs * 0.05
-                        probs[z_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append(f"Diagonal index pose (ratio={ratio_xy:.2f}) with folded thumb -> 'Z'")
+                    _force_class("G", "Static horizontal index point with parallel thumb", ["Z", "1", "D", "X"])
+                elif ratio_xy >= 0.40 or (top1_label == "Z" and ratio_xy >= 0.30):
+                    _force_class("Z", f"Diagonal index pose (ratio={ratio_xy:.2f}) with folded thumb", ["G", "1", "D", "X"])
                 else:
-                    # Static upright index point -> '1'
-                    for wrong_cls in ["G", "Z", "D"]:
-                        if wrong_cls in self.classes:
-                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                    if "1" in self.classes:
-                        one_idx = self.classes.index("1")
-                        probs = probs * 0.05
-                        probs[one_idx] = 0.88
-                        probs = probs / np.sum(probs)
-                        disambig_notes.append("Static upright index point -> '1'")
+                    _force_class("1", "Static upright index point", ["G", "Z", "D", "X"])
 
         # -------------------------------------------------------------
-        # 4. Fine-Grained Pairwise Disambiguations
+        # 6. Exactly 2 Fingers Extended (Index, Middle): 'V', '2', '3', 'U', 'R', 'K', 'H'
+        # -------------------------------------------------------------
+        elif idx_ext and mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
+            if thumb_ext:
+                _force_class("3", f"Thumb+Index+Mid ext (d_tp_mcp={d_tp_mcp:.2f}, d_tw={d_tw:.2f})", ["V", "2", "U", "R", "K", "H", "W", "6"])
+            elif (ratio_xy >= 1.10) and d_im < 0.35 and v_idx[1] < 0.0:
+                _force_class("H", "Horizontal 2-finger parallel", ["V", "2", "U", "R", "K", "W", "6"])
+            elif ((i_tip[0] - m_tip[0]) * (i_mcp[0] - m_mcp[0]) < 0) or top1_label == "R":
+                _force_class("R", "Crossed index and middle fingers", ["V", "2", "U", "K", "H", "W", "6"])
+            elif (d_tm_pip < 0.28) and (v_idx[1] < -0.15) and (top1_label == "K" or top2_label == "K"):
+                _force_class("K", "Thumb at middle PIP joint", ["V", "2", "U", "R", "H", "W", "6"])
+            elif d_im < 0.35:
+                _force_class("U", f"Touching parallel fingers (d_im={d_im:.2f})", ["V", "2", "R", "K", "W", "6"])
+            else:
+                target = "2" if ((top1_label == "2" or top2_label == "2") and "2" in self.classes) else "V"
+                _force_class(target, f"Spread V-shape (d_im={d_im:.2f})", ["U", "R", "K", "H", "3", "W", "6"])
+
+        # -------------------------------------------------------------
+        # 7. Three Fingers Extended: 'W' vs '6'
+        # -------------------------------------------------------------
+        elif idx_ext and mid_ext and ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
+            if d_tp < 0.25:
+                _force_class("6", f"Thumb-pinky contact loop (d_tp={d_tp:.2f})", ["W", "V", "3", "U", "2"])
+            else:
+                _force_class("W", f"3-finger spread fan (d_im={d_im:.2f}, d_mr={d_mr:.2f})", ["6", "V", "3", "U", "2"])
+
+        # -------------------------------------------------------------
+        # 8. Four/Five Fingers Extended: '4', 'B', '5', 'C', 'space'
+        # -------------------------------------------------------------
+        elif idx_ext and mid_ext and ring_ext and pnk_ext:
+            min_aperture = min(d_ti, d_tm)
+            if 0.35 <= min_aperture <= 0.85 and thumb_ext and (top1_label in ("C", "O", "0") or top2_label in ("C", "O", "0")):
+                _force_class("C", f"Open curved C aperture ({min_aperture:.2f})", ["B", "4", "5", "space", "O"])
+            elif (is_horizontal or abs(v_idx[0]) > abs(v_idx[1]) * 0.70) and d_im < 0.40 and d_mr < 0.40 and top1_label == "space":
+                _force_class("space", "Horizontal 4-finger flat hand", ["B", "4", "5", "C"])
+            elif thumb_ext or d_tp_mcp >= 0.85:
+                _force_class("5", "All 5 digits extended wide", ["4", "B", "space", "C"])
+            else:
+                if d_im < 0.28 and d_mr < 0.28:
+                    _force_class("B", f"4-finger flat pressed upright (d_im={d_im:.2f})", ["4", "5", "space", "C"])
+                else:
+                    _force_class("4", f"4-finger spread upright (d_im={d_im:.2f})", ["B", "5", "space", "C"])
+
+        # -------------------------------------------------------------
+        # 9. Fist / Closed Hand: 'A', 'S', 'T', 'E', '0', 'O'
+        # -------------------------------------------------------------
+        elif not idx_ext and not mid_ext and not ring_ext and not pnk_ext:
+            if d_ti < 0.25 and d_tm < 0.32:
+                loop_width = np.linalg.norm(i_mcp - p_mcp) / palm
+                loop_height = np.linalg.norm(i_tip - w) / palm
+                aspect = float(loop_width / (loop_height + 1e-6))
+                if aspect >= 0.29 or d_tm >= 0.22:
+                    _force_class("0", f"Narrow oval zero (aspect={aspect:.2f}, d_tm={d_tm:.2f})", ["O", "A", "S", "T", "E", "del"])
+                else:
+                    _force_class("O", f"Round circular O (aspect={aspect:.2f}, d_tm={d_tm:.2f})", ["0", "A", "S", "T", "E", "del"])
+            elif d_tr < 0.32 and d_tp < 0.32:
+                _force_class("E", "Fingertips curled into palm against thumb", ["A", "S", "T", "0", "O"])
+            elif (t_tip[0] - i_mcp[0]) > 0.35 * palm and d_ti_mcp > 0.60:
+                _force_class("T", "Thumb tucked between index and middle", ["A", "S", "E"])
+            elif d_tm_mcp < 0.35:
+                _force_class("S", "Thumb folded across front of fingers", ["A", "T", "E"])
+            else:
+                _force_class("A", "Thumb upright alongside index MCP", ["S", "T", "E"])
+
+        # -------------------------------------------------------------
+        # 10. Closed Fist 'del' Guard
+        # -------------------------------------------------------------
+        is_fist = not (idx_ext or mid_ext or ring_ext or pnk_ext)
+        if is_fist:
+            if "del" in self.classes:
+                del_idx = self.classes.index("del")
+                if probs[del_idx] > 0.05:
+                    probs[del_idx] = 0.01
+                    probs = probs / np.sum(probs)
+
+        # -------------------------------------------------------------
+        # 11. Fine-Grained Pairwise Disambiguations
         # -------------------------------------------------------------
         # 'C' vs 'O' Disambiguation
         if top2_set == {"C", "O"}:
@@ -636,44 +621,6 @@ class SignPredictor:
                 _disambiguate_pair("0", "O", favor_a=True, reason=f"Narrow oval zero ({aspect:.2f})")
             elif aspect >= 0.74:
                 _disambiguate_pair("0", "O", favor_a=False, reason=f"Round circular O ({aspect:.2f})")
-
-        # 'J' vs 'I' Dynamic Motion Gating
-        if top2_set == {"J", "I"}:
-            if kinetic_energy >= 0.035:
-                _disambiguate_pair("J", "I", favor_a=True, reason=f"Curve swoop motion ({kinetic_energy:.3f})")
-            elif 0.0 < kinetic_energy < 0.022:
-                _disambiguate_pair("J", "I", favor_a=False, reason=f"Static pinky hold ({kinetic_energy:.3f})")
-
-        # 'P' vs 'Q' Disambiguation (both pointing downward)
-        if top2_set == {"P", "Q"}:
-            mid_is_ext = np.linalg.norm(m_tip - w) > np.linalg.norm(m_pip - w) * 1.05
-            if mid_is_ext:
-                _disambiguate_pair("P", "Q", favor_a=True, reason="Extended middle finger in downward sign")
-            else:
-                _disambiguate_pair("P", "Q", favor_a=False, reason="Curled middle finger in downward sign")
-
-        # -------------------------------------------------------------
-        # 4. Closed Fist 'del' Guard
-        # -------------------------------------------------------------
-        is_fist = not (idx_ext or mid_ext or ring_ext or pnk_ext)
-        if is_fist:
-            if "del" in self.classes:
-                del_idx = self.classes.index("del")
-                if probs[del_idx] > 0.05:
-                    probs[del_idx] = 0.01
-                    probs = probs / np.sum(probs)
-
-        # -------------------------------------------------------------
-        # 5. ASL 'space' Horizontal / Flat Hand Disambiguation
-        # -------------------------------------------------------------
-        if idx_ext and mid_ext and ring_ext and pnk_ext:
-            if (is_horizontal or abs(v_idx[0]) > abs(v_idx[1]) * 0.40) and d_im < 0.45 and d_mr < 0.45:
-                if "space" in self.classes:
-                    sp_idx = self.classes.index("space")
-                    probs = probs * 0.05
-                    probs[sp_idx] = 0.90
-                    probs = probs / np.sum(probs)
-                    disambig_notes.append("Horizontal 4-finger flat hand -> 'space'")
 
         # 12. Multimodal Lip-Morpheme Facial Fusion Engine (M vs N, C vs O, D vs 1)
         if self.enable_lip_fusion and (top2_set & ({"M", "N"} | {"C", "O"} | {"D", "1"})):
