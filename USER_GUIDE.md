@@ -253,8 +253,20 @@ Educational masterclass designed for beginners and non-signers:
    * Anatomical finger positioning instructions.
    * Thumb placement rules.
    * Common mistakes to avoid.
-2. **Disambiguation Cheat-Sheets**:
-   * **`W` vs `6`**: Three middle fingers spread fan-out (`W`) vs thumb touching pinky with parallel fingers (`6`).
+2. **Anatomical Invariants for Confused Cluster (`V`, `3`, `W`, `6`, `U`):**
+
+| Sign | Upright Fingers | Ring Finger | Thumb State | Pinky Interaction | Mathematical Rule |
+|---|---|---|---|---|---|
+| **`V`** | Index + Middle (Spread) | **Curled** | **Folded into palm** | Curled | $d_{im} \ge 0.17$, Ring Curled, $d_{tp\_mcp} < 0.65$ |
+| **`3`** | Index + Middle + Thumb | **Curled** | **Extended laterally** | Curled | Thumb Extended ($d_{tp\_mcp} \ge 0.80, d_{tw} \ge 0.75$), Ring Curled |
+| **`W`** | Index + Middle + Ring (Spread) | **Extended** | Folded over pinky | Curled (Open Loop) | Ring Extended, $d_{tp} \ge 0.25$ or Spread ($d_{im}, d_{mr} \ge 0.18$) |
+| **`6`** | Index + Middle + Ring | **Extended** | Touching pinky tip | **Pinched to Thumb Tip** | Ring Extended, Pinch Loop $d_{tp} < 0.25$ |
+| **`U`** | Index + Middle (Touching) | **Curled** | **Folded into palm** | Curled | $d_{im} < 0.17$ (parallel stack), Ring Curled, Thumb Folded |
+
+3. **Disambiguation Cheat-Sheets**:
+   * **`V` vs `3`**: In **`V`**, the thumb is folded across the palm. In ASL **`3`**, the thumb is sticking OUT to the side.
+   * **`V` vs `W`**: In **`V`**, only 2 fingers are upright (ring is curled). In **`W`**, 3 fingers are upright (ring is extended).
+   * **`W` vs `6`**: In **`W`**, fingers form a spread fan and thumb does not touch pinky tip. In **`6`**, thumb and pinky touch tip-to-tip.
    * **`U` vs `V`**: Index and middle fingers pressed touching parallel (`U`) vs spread apart in a "V" (`V`).
    * **`C` vs `O`**: Open semi-circle gap $\ge 40\%$ (`C`) vs fingertips touching thumb in a closed loop (`O`).
    * **`Z` vs `1`**: Dynamic zigzag air-drawing stroke (`Z`) vs static vertical point hold (`1`).

@@ -855,10 +855,15 @@ def main():
                 unsafe_allow_html=True
             )
 
-            with st.expander("🔰 Beginner Testing Guide — 5 Easiest Signs to Test Instantly", expanded=False):
+            with st.expander("🔰 Beginner Testing Guide — Clear Sign Formation & Differentiation", expanded=False):
                 st.markdown("""
-                **New to Sign Language? Test the AI in seconds using these universal gestures:**
-                * ✌️ **`V` (Peace Sign):** Index & middle fingers pointing UP in a V shape.
+                **How to distinguish easily confused signs (V, 3, W, 6):**
+                * ✌️ **`V` (Letter V / Peace Sign):** Index and middle fingers pointing straight UP in a spread "V". Ring and pinky curled into palm. **Thumb is folded across palm.**
+                * 🤟 **`3` (Number 3 in ASL):** Index and middle fingers pointing straight UP. Ring and pinky curled into palm. **Thumb is extended OUTWARD to the side.**
+                * 🖐️ **`W` (Letter W):** Index, middle, and ring fingers pointing UP and spread like a "W". Pinky curled into palm. **Thumb folded over pinky (not touching pinky tip).**
+                * 👌 **`6` (Number 6 in ASL):** Index, middle, and ring fingers pointing straight UP. **Thumb touches the tip of your pinky finger in a closed circle loop.**
+
+                **Other Quick Signs to Test:**
                 * 👆 **`L` (Corner Shape):** Index finger pointing straight UP, thumb sticking OUT.
                 * 🤙 **`Y` (Call-Me Sign):** Thumb and pinky finger sticking OUT, middle 3 fingers curled.
                 * ✋ **`B` (Flat Stop Palm):** All 4 fingers straight UP touching together, thumb folded across palm.
