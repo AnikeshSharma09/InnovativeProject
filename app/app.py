@@ -303,7 +303,7 @@ def load_continuous_recognizer():
         return None
 
 
-PREDICTOR_BUILD_VERSION = "2026.11.16.v5_invariants"
+PREDICTOR_BUILD_VERSION = "2026.11.16.v6_h_k_v_disambig"
 
 @st.cache_resource(show_spinner="Loading Deep Learning LSTM model & Landmark Stabilizers...")
 def load_predictor(build_version: str = PREDICTOR_BUILD_VERSION):

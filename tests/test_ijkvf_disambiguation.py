@@ -175,6 +175,44 @@ class TestIJKVFDisambiguation(unittest.TestCase):
         self.assertEqual(pred, "H", f"Expected 'H' but got '{pred}' (note: {note})")
         self.assertLessEqual(probs_out[self.classes.index("V")], 0.02)
         self.assertLessEqual(probs_out[self.classes.index("K")], 0.02)
+        self.assertLessEqual(probs_out[self.classes.index("1")], 0.02)
+
+    def test_h_horizontal_one_finger_occluded(self):
+        """H sign with occluded middle finger pointing horizontal must predict 'H', NEVER '1'."""
+        # Take H and curl middle finger slightly so only index is detected as extended
+        coords = [list(pt) for pt in self.canon["H"]]
+        # Retract middle fingertip towards palm so mid_ext becomes False
+        coords[12] = [coords[9][0], coords[9][1] - 0.05, coords[9][2]]
+        probs_in = self._make_probs("1", 0.75, "H", 0.15)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "H", f"Expected 'H' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("1")], 0.02)
+
+    def test_1_strictly_upright(self):
+        """1 sign pointing upright must predict '1', not 'H' or 'G'."""
+        coords = self.canon["1"]
+        probs_in = self._make_probs("H", 0.60, "1", 0.25)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "1", f"Expected '1' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("H")], 0.02)
+
+    def test_upright_hand_not_hijacked_by_downward_p(self):
+        """Upright K hand with RF noise predicting P must NOT trigger downward P."""
+        coords = self.canon["K"]
+        # Model predicts P due to noise, but hand is upright pointing at ceiling
+        probs_in = self._make_probs("P", 0.60, "K", 0.25)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            coords, probs_in, kinetic_energy=0.005
+        )
+        pred = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred, "K", f"Expected 'K' but got '{pred}' (note: {note})")
+        self.assertLessEqual(probs_out[self.classes.index("P")], 0.02)
 
 
 if __name__ == "__main__":

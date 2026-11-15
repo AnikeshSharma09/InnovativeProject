@@ -473,23 +473,23 @@ class SignPredictor:
         # -------------------------------------------------------------
         # 2. Downward Signs: 'P' vs 'Q'
         # -------------------------------------------------------------
-        elif (top1_label in ("P", "Q") or top2_label in ("P", "Q") or (is_downward and v_idx[0] < -0.25)):
+        elif idx_ext and not ring_ext and not pnk_ext and v_idx[1] > -0.10 and (top1_label in ("P", "Q") or top2_label in ("P", "Q") or (is_downward and v_idx[0] < -0.25)):
             if d_tm < 0.35:
-                _force_class("P", f"Downward hand with middle finger touch (d_tm={d_tm:.2f})", ["Q", "G", "K", "1"])
+                _force_class("P", f"Downward hand with middle finger touch (d_tm={d_tm:.2f})", ["Q", "G", "K", "1", "H", "V"])
             else:
-                _force_class("Q", "Downward index point with thumb along index", ["P", "G", "1", "K"])
+                _force_class("Q", "Downward index point with thumb along index", ["P", "G", "1", "K", "H", "V"])
 
         # -------------------------------------------------------------
         # 3. Pinky-Only Extended Signs: 'I', 'J', 'Y'
         # -------------------------------------------------------------
         elif pnk_ext and not idx_ext and not mid_ext and not ring_ext:
-            is_y_pose = (d_tp >= 1.05) or (d_tp_mcp >= 0.70) or (d_ti_mcp >= 0.55 and d_tw >= 0.70)
+            is_y_pose = (d_tp >= 1.05) or (d_tm_pip >= 0.70) or (d_ti_mcp >= 0.60 and d_tw >= 0.85) or (top1_label == "Y" and d_tp >= 0.50 and d_tm_pip >= 0.50)
             if is_y_pose:
-                _force_class("Y", f"Extended thumb + pinky shaka (d_tp={d_tp:.2f})", ["I", "J"])
+                _force_class("Y", f"Extended thumb + pinky shaka (d_tp={d_tp:.2f}, d_tm_pip={d_tm_pip:.2f})", ["I", "J", "5", "4", "6", "W"])
             elif kinetic_energy >= 0.028:
                 _force_class("J", f"Dynamic pinky swoop stroke (KE={kinetic_energy:.3f})", ["I", "Y"])
             else:
-                _force_class("I", "Static upright pinky hold", ["J", "Y"])
+                _force_class("I", "Static upright pinky hold", ["J", "Y", "5", "4", "6", "W"])
 
         # -------------------------------------------------------------
         # 4. Number Contact Loops: '6', '7', '8', '9' and Letter 'F'
@@ -524,46 +524,56 @@ class SignPredictor:
             _force_class(target, f"Thumb-index contact circle (d_ti={d_ti:.2f})", suppress)
 
         # -------------------------------------------------------------
-        # 5. Exactly 1 Finger Extended (Index): 'G', 'Z', '1', 'D', 'L', 'X'
+        # 5. Exactly 1 Finger Extended (Index): 'G', 'Z', 'H', '1', 'D', 'L', 'X'
         # -------------------------------------------------------------
         elif idx_ext and not mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
             is_thumb_folded = (d_tm_mcp < 0.40) or (d_tm_pip < 0.30)
-            is_g_pose = (ratio_xy >= 1.45) and (abs(v_idx[0]) >= 0.18) and (not is_thumb_folded) and (cos_thumb_idx > 0.60)
+            is_g_pose = (ratio_xy >= 1.10) and (abs(v_idx[0]) >= 0.18) and (not is_thumb_folded) and (cos_thumb_idx > 0.60)
+            is_horizontal_sideways = (ratio_xy >= 1.0) and (abs(v_idx[0]) >= 0.18)
 
             if (d_tip_pip < 0.38) or (top1_label == "X" and d_tip_pip < 0.45):
-                _force_class("X", f"Bent index hook (d_tip_pip={d_tip_pip:.2f})", ["1", "D", "G", "Z"])
+                _force_class("X", f"Bent index hook (d_tip_pip={d_tip_pip:.2f})", ["1", "D", "G", "Z", "H"])
             elif kinetic_energy >= 0.028:
-                _force_class("Z", f"Dynamic stroke trajectory (KE={kinetic_energy:.3f})", ["G", "1", "D", "X"])
+                _force_class("Z", f"Dynamic stroke trajectory (KE={kinetic_energy:.3f})", ["G", "1", "D", "X", "H"])
             elif d_tm < 0.20 and ratio_xy < 1.20 and d_tip_pip >= 0.40 and (not is_g_pose):
-                _force_class("D", f"Thumb-middle tip circle loop (d_tm={d_tm:.2f})", ["G", "Z", "1", "L", "X", "F"])
+                _force_class("D", f"Thumb-middle tip circle loop (d_tm={d_tm:.2f})", ["G", "Z", "1", "L", "X", "F", "H"])
             elif thumb_ext and d_ti_mcp >= 0.55 and d_tm > 0.45 and ratio_xy < 0.70 and cos_thumb_idx < 0.65:
-                _force_class("L", f"L-shape upright index with extended thumb (d_ti_mcp={d_ti_mcp:.2f})", ["1", "D", "G", "Z", "X"])
+                _force_class("L", f"L-shape upright index with extended thumb (d_ti_mcp={d_ti_mcp:.2f})", ["1", "D", "G", "Z", "X", "H"])
             elif is_g_pose:
-                _force_class("G", "Static horizontal index point with parallel thumb", ["Z", "1", "D", "X"])
+                _force_class("G", "Static horizontal index point with parallel thumb", ["Z", "1", "D", "X", "H"])
+            elif is_horizontal_sideways and (top1_label in ("H", "G") or top2_label in ("H", "G") or is_thumb_folded):
+                if top1_label == "G" and not is_thumb_folded:
+                    _force_class("G", "Horizontal point with thumb along index", ["Z", "1", "D", "X", "H"])
+                else:
+                    _force_class("H", f"Horizontal sideways point (ratio={ratio_xy:.2f}) with folded thumb (H-pose occlusion)", ["1", "G", "Z", "D", "X", "V"])
             elif (0.45 <= ratio_xy < 1.45) and is_thumb_folded and (top1_label == "Z" or top2_label == "Z" or (top1_label == "G" and probs[self.classes.index("Z")] > 0.02)):
-                _force_class("Z", f"Diagonal index pose (ratio={ratio_xy:.2f}) with folded thumb", ["G", "1", "D", "X"])
+                _force_class("Z", f"Diagonal index pose (ratio={ratio_xy:.2f}) with folded thumb", ["G", "1", "D", "X", "H"])
+            elif ratio_xy <= 0.70 and v_idx[1] < -0.15:
+                _force_class("1", "Static upright index point", ["G", "Z", "D", "X", "H"])
+            elif ratio_xy > 0.85:
+                _force_class("H", f"Sideways horizontal pointing hand (ratio={ratio_xy:.2f})", ["1", "G", "Z", "D", "X"])
             else:
-                _force_class("1", "Static upright index point", ["G", "Z", "D", "X"])
+                _force_class("1", "Upright index point fallback", ["G", "Z", "D", "X", "H"])
 
         # -------------------------------------------------------------
-        # 6. Exactly 2 Fingers Extended (Index, Middle): 'V', '2', '3', 'U', 'R', 'K', 'H'
+        # 6. Exactly 2 Fingers Extended (Index, Middle): 'H', 'K', 'V', '2', '3', 'U', 'R'
         # -------------------------------------------------------------
         elif idx_ext and mid_ext and not ring_ext and not pnk_ext and not is_downward and v_idx[1] <= 0.15:
-            is_k_pose = (d_tm_pip < 0.40) and (d_ti_mcp < 0.70) and (ratio_xy < 1.30)
-            is_3_pose = (d_tp_mcp >= 1.00) and (d_tw >= 1.10) and (d_tm_pip >= 0.75)
-            is_h_pose = (ratio_xy >= 1.40) and (abs(v_idx[0]) >= 0.20) and (d_im < 0.38)
+            is_3_pose = (d_tp_mcp >= 1.00) and (d_tw >= 1.05) and (d_tm_pip >= 0.70)
+            is_h_pose = (ratio_xy >= 0.90 or abs(v_idx[0]) > abs(v_idx[1])) and (abs(v_idx[0]) >= 0.15)
+            is_k_pose = (d_tm_pip < 0.42 or (top1_label == "K" and d_tm_pip < 0.52)) and (ratio_xy < 0.90) and (v_idx[1] < -0.10)
 
-            if is_3_pose:
-                _force_class("3", f"Thumb+Index+Mid ext (d_tp_mcp={d_tp_mcp:.2f}, d_tw={d_tw:.2f})", ["V", "2", "U", "R", "K", "H", "W", "6"])
+            if is_h_pose:
+                _force_class("H", f"Horizontal 2-finger parallel (ratio={ratio_xy:.2f})", ["V", "2", "U", "R", "K", "W", "6", "1", "G", "P", "Q"])
+            elif is_3_pose:
+                _force_class("3", f"Thumb+Index+Mid ext (d_tp_mcp={d_tp_mcp:.2f}, d_tw={d_tw:.2f})", ["V", "2", "U", "R", "K", "H", "W", "6", "P", "Q"])
             elif ((i_tip[0] - m_tip[0]) * (i_mcp[0] - m_mcp[0]) < 0) or top1_label == "R":
-                _force_class("R", "Crossed index and middle fingers", ["V", "2", "U", "K", "H", "W", "6"])
+                _force_class("R", "Crossed index and middle fingers", ["V", "2", "U", "K", "H", "W", "6", "P", "Q"])
             elif is_k_pose:
-                # ASL 'K': Thumb placed at middle finger PIP joint
-                _force_class("K", f"Thumb at middle PIP joint (d_tm_pip={d_tm_pip:.2f})", ["V", "2", "U", "R", "H", "W", "6"])
-            elif is_h_pose:
-                _force_class("H", "Horizontal 2-finger parallel", ["V", "2", "U", "R", "K", "W", "6"])
-            elif d_im < 0.35:
-                _force_class("U", f"Touching parallel fingers (d_im={d_im:.2f})", ["V", "2", "R", "K", "W", "6"])
+                # ASL 'K': Thumb placed at middle finger PIP joint, hand pointing upright
+                _force_class("K", f"Thumb at middle PIP joint (d_tm_pip={d_tm_pip:.2f})", ["V", "2", "U", "R", "H", "W", "6", "1", "P", "Q"])
+            elif d_im < 0.32:
+                _force_class("U", f"Touching parallel fingers pointing upright (d_im={d_im:.2f})", ["V", "2", "R", "K", "W", "6", "H", "P", "Q"])
             else:
                 # Spread V-shape: Resolve 'V' vs '2' with zero jumping
                 p_2 = probs[self.classes.index("2")] if "2" in self.classes else 0.0
@@ -580,7 +590,7 @@ class SignPredictor:
                     target = "2"
                 else:
                     target = "V"
-                suppress = ["U", "R", "K", "H", "3", "W", "6"]
+                suppress = ["U", "R", "K", "H", "3", "W", "6", "1", "P", "Q"]
                 if target == "V" and "2" in self.classes:
                     suppress.append("2")
                 elif target == "2" and "V" in self.classes:
