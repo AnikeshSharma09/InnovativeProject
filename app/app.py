@@ -43,6 +43,9 @@ from utils.sentence_engine import EnterpriseSentenceEngine
 from utils.prediction_logger import PredictionLogger
 from utils.personalization import PersonalVocabularyManager, UserCorrectionTracker
 from utils.asl_grammar import ASLGrammarTranslator
+from utils.reverse_sign_renderer import generate_avatar_html
+from utils.text_to_asl_synthesizer import TextToASLSynthesizer
+import streamlit.components.v1 as components
 from prediction.continuous_recognizer import ContinuousSignRecognizer
 from prediction.camera_manager import (
     open_robust_camera,
@@ -575,8 +578,9 @@ def main():
             st.success("Buffers reset.")
 
     # Main Tabs
-    tab_webcam, tab_upload, tab_metrics, tab_tutorial = st.tabs([
+    tab_webcam, tab_reverse, tab_upload, tab_metrics, tab_tutorial = st.tabs([
         "📹 Live Motion Webcam & Dual Output",
+        "🗣️➡️🤟 Reverse Speech-to-Sign Avatar",
         "🖼️ Static Image Analysis & Dataset Explorer",
         "📊 Model Performance & Benchmarks",
         "📖 Interactive Sign Tutorial & Practice Guide"
@@ -1154,7 +1158,28 @@ def main():
                             release_camera_safely(cap)
 
     # =========================================================================
-    # TAB 2: STATIC IMAGE ANALYSIS & DATASET EXPLORER
+    # TAB 2: REVERSE SPEECH-TO-SIGN 3D AVATAR (BI-DIRECTIONAL BRIDGE)
+    # =========================================================================
+    with tab_reverse:
+        st.subheader("🗣️➡️🤟 Reverse Two-Way Communication Bridge: Speech-to-Sign 3D Avatar")
+        st.markdown(
+            "Empowers **hearing individuals to communicate back to deaf individuals**. "
+            "Speak into your microphone or type an English sentence below to watch the **3D Skeletal Hand Avatar** "
+            "synthesize and animate ASL grammatical signs and fingerspelling in real time with 360° perspective orbit!"
+        )
+
+        col_rev_top1, col_rev_top2 = st.columns([3, 1])
+        with col_rev_top1:
+            st.info("💡 **Microphone Tip:** Click the **'🎙️ Speak Now'** button inside the avatar card below to talk into your microphone using the native Web Speech API.")
+        with col_rev_top2:
+            st.caption("✨ **Features:** 3D Orbit, Speed Control, Web Speech API, Biomechanical Interpolation")
+
+        # Generate avatar HTML with current cached knowledge base
+        avatar_html = generate_avatar_html(default_text="HELLO HOW ARE YOU TODAY")
+        components.html(avatar_html, height=760, scrolling=False)
+
+    # =========================================================================
+    # TAB 3: STATIC IMAGE ANALYSIS & DATASET EXPLORER
     # =========================================================================
     with tab_upload:
         st.subheader("🖼️ High-Precision Gesture Image Analysis & Multi-Dataset Explorer")
