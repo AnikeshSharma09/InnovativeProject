@@ -855,6 +855,25 @@ def main():
                 unsafe_allow_html=True
             )
 
+            with st.expander("🔰 Beginner Testing Guide — 5 Easiest Signs to Test Instantly", expanded=False):
+                st.markdown("""
+                **New to Sign Language? Test the AI in seconds using these universal gestures:**
+                * ✌️ **`V` (Peace Sign):** Index & middle fingers pointing UP in a V shape.
+                * 👆 **`L` (Corner Shape):** Index finger pointing straight UP, thumb sticking OUT.
+                * 🤙 **`Y` (Call-Me Sign):** Thumb and pinky finger sticking OUT, middle 3 fingers curled.
+                * ✋ **`B` (Flat Stop Palm):** All 4 fingers straight UP touching together, thumb folded across palm.
+                * 🤙 **`I` (Pinky Up):** Pinky finger pointing straight UP, other fingers in a fist.
+                * ⭕ **`O` (Telescope Circle):** All fingertips curved touching thumb tip in a circle.
+                * ␣ **`Space`:** Open flat hand held horizontally across your chest (or pause for 1.2s).
+
+                **3 Easy Words to Spell Right Now:**
+                * **`HI`**: Sign **H** (index + middle sideways) ➡️ **I** (pinky up).
+                * **`BYE`**: Sign **B** (flat palm) ➡️ **Y** (call-me sign) ➡️ **E** (curled knuckles).
+                * **`LOVE`**: Sign **L** ➡️ **O** ➡️ **V** ➡️ **E**.
+
+                💡 *Prefer not to sign yourself? Use **Tab 2** (3D Avatar) or **Tab 3** (Dataset Explorer)!*
+                """)
+
             if cam_mode == "📸 In-Browser Webcam (Instant Snapshot)":
                 st.info("💡 **In-Browser Webcam Mode**: Uses your browser directly via WebRTC. Works seamlessly on any OS with zero driver conflicts.")
                 browser_snap = st.camera_input("Hold up your ASL sign and click 'Take Photo'", key="browser_cam_snap")
