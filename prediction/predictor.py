@@ -397,6 +397,10 @@ class SignPredictor:
 
         # Hand orientation (upright vs horizontal)
         v_idx = i_tip - i_mcp
+        v_thumb = t_tip - t_mcp
+        norm_v_thumb = np.linalg.norm(v_thumb[:2])
+        norm_v_idx = np.linalg.norm(v_idx[:2])
+        cos_thumb_idx = float(np.dot(v_thumb[:2], v_idx[:2]) / (norm_v_thumb * norm_v_idx + 1e-6))
         is_horizontal = (abs(v_idx[0]) > abs(v_idx[1]) * 0.70) or (v_idx[1] > -0.05)
 
         # Specialized poses: K and R guards
@@ -520,7 +524,7 @@ class SignPredictor:
                         disambig_notes.append(f"3-finger spread fan (d_im={d_im:.2f}, d_mr={d_mr:.2f}) -> 'W'")
 
         # -------------------------------------------------------------
-        # 2. ASL 'H' & 'G' Horizontal Orientation Disambiguation
+        # 2. ASL 'H' (2-Finger Horizontal) Disambiguation
         # -------------------------------------------------------------
         if idx_ext and mid_ext and not ring_ext and not pnk_ext and is_horizontal and d_im < 0.35:
             if "H" in self.classes:
@@ -531,17 +535,77 @@ class SignPredictor:
                     probs = probs / np.sum(probs)
                     disambig_notes.append("Horizontal 2-finger parallel -> 'H'")
 
-        if idx_ext and not mid_ext and not ring_ext and not pnk_ext and is_horizontal:
-            if "G" in self.classes:
-                g_idx = self.classes.index("G")
-                if probs[g_idx] < 0.70:
+        # -------------------------------------------------------------
+        # 3. ASL 'G' vs 'Z' vs '1' vs 'D' (1-Finger Index Extended) Disambiguation
+        # Preconditions: Only Index extended, Middle/Ring/Pinky curled into fist,
+        # Hand not pointing downward (P/Q guard).
+        # -------------------------------------------------------------
+        is_1finger = idx_ext and not mid_ext and not ring_ext and not pnk_ext and (v_idx[1] <= 0.15)
+        is_l_pose = (top1_label == "L" or top2_label == "L") and (cos_thumb_idx < 0.40) and (d_ti_mcp > 0.50)
+
+        if is_1finger and not is_l_pose:
+            # ---------------------------------------------------------
+            # CASE A: Dynamic Kinematic Motion (kinetic_energy >= 0.028)
+            # ASL 'Z' is uniquely an air-drawn letter stroke.
+            # Static signs ('G', '1', 'D') cannot be executed in high-velocity drawing motion.
+            # ---------------------------------------------------------
+            if kinetic_energy >= 0.028:
+                for wrong_cls in ["G", "1", "D"]:
+                    if wrong_cls in self.classes:
+                        probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                if "Z" in self.classes:
+                    z_idx = self.classes.index("Z")
                     probs = probs * 0.05
-                    probs[g_idx] = 0.88
+                    probs[z_idx] = 0.88
                     probs = probs / np.sum(probs)
-                    disambig_notes.append("Horizontal index point -> 'G'")
+                    disambig_notes.append(f"Dynamic stroke trajectory (KE={kinetic_energy:.3f}) -> 'Z'")
+            else:
+                # ---------------------------------------------------------
+                # CASE B: Static Hold (kinetic_energy < 0.028)
+                # In a static hold, ASL 'Z' is linguistically and physically impossible.
+                # ---------------------------------------------------------
+                if "Z" in self.classes:
+                    probs[self.classes.index("Z")] = min(probs[self.classes.index("Z")], 0.005)
+
+                is_sideways = (abs(v_idx[0]) > abs(v_idx[1]) * 0.50) or (v_idx[1] > -0.12)
+                is_g_pose = is_sideways and (cos_thumb_idx > 0.60 or d_tm_pip > 0.35 or top1_label == "G")
+                if is_g_pose:
+                    for wrong_cls in ["Z", "1", "D"]:
+                        if wrong_cls in self.classes:
+                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                    if "G" in self.classes:
+                        g_idx = self.classes.index("G")
+                        probs = probs * 0.05
+                        probs[g_idx] = 0.88
+                        probs = probs / np.sum(probs)
+                        disambig_notes.append("Static horizontal/parallel index point -> 'G'")
+                else:
+                    # Static upright pointing: 'D' vs '1'
+                    if d_tm < 0.22:
+                        # Thumb touches middle tip in a circular loop -> 'D'
+                        if "D" in self.classes:
+                            for wrong_cls in ["G", "Z", "1"]:
+                                if wrong_cls in self.classes:
+                                    probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                            d_idx = self.classes.index("D")
+                            probs = probs * 0.05
+                            probs[d_idx] = 0.88
+                            probs = probs / np.sum(probs)
+                            disambig_notes.append(f"Thumb-middle tip loop (d_tm={d_tm:.2f}) -> 'D'")
+                    else:
+                        # Thumb folded across fist, index pointing straight up -> '1'
+                        if "1" in self.classes:
+                            for wrong_cls in ["G", "Z", "D"]:
+                                if wrong_cls in self.classes:
+                                    probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                            one_idx = self.classes.index("1")
+                            probs = probs * 0.05
+                            probs[one_idx] = 0.88
+                            probs = probs / np.sum(probs)
+                            disambig_notes.append("Static upright index point -> '1'")
 
         # -------------------------------------------------------------
-        # 3. Fine-Grained Pairwise Disambiguations
+        # 4. Fine-Grained Pairwise Disambiguations
         # -------------------------------------------------------------
         # 'C' vs 'O' Disambiguation
         if top2_set == {"C", "O"}:
@@ -560,13 +624,6 @@ class SignPredictor:
                 _disambiguate_pair("0", "O", favor_a=True, reason=f"Narrow oval zero ({aspect:.2f})")
             elif aspect >= 0.74:
                 _disambiguate_pair("0", "O", favor_a=False, reason=f"Round circular O ({aspect:.2f})")
-
-        # 'Z' vs '1' Dynamic Motion Gating
-        if top2_set == {"Z", "1"}:
-            if kinetic_energy >= 0.035:
-                _disambiguate_pair("Z", "1", favor_a=True, reason=f"Motion velocity ({kinetic_energy:.3f})")
-            elif 0.0 < kinetic_energy < 0.022:
-                _disambiguate_pair("Z", "1", favor_a=False, reason=f"Static point hold ({kinetic_energy:.3f})")
 
         # 'J' vs 'I' Dynamic Motion Gating
         if top2_set == {"J", "I"}:

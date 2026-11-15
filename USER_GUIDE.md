@@ -263,7 +263,17 @@ Educational masterclass designed for beginners and non-signers:
 | **`6`** | Index + Middle + Ring | **Extended** | Touching pinky tip | **Pinched to Thumb Tip** | Ring Extended, Pinch Loop $d_{tp} < 0.25$ |
 | **`U`** | Index + Middle (Touching) | **Curled** | **Folded into palm** | Curled | $d_{im} < 0.17$ (parallel stack), Ring Curled, Thumb Folded |
 
-3. **Disambiguation Cheat-Sheets**:
+3. **Kinematic & Geometric Invariants for Index-Point Cluster (`G`, `Z`, `1`, `D`):**
+
+| Sign | Motion State | Hand Orientation | Thumb Placement | Decisive Feature |
+|---|---|---|---|---|
+| **`G`** | **Static Hold** ($KE < 0.025$) | **Horizontal / Sideways** | Parallel alongside index | Static horizontal index point with parallel thumb. |
+| **`Z`** | **Active Motion** ($KE \ge 0.028$) | Any (Traced in air) | Folded on fist | Air-drawn 'Z' trajectory (horizontal ➡️ diagonal ➡️ horizontal). |
+| **`1`** | **Static Hold** ($KE < 0.025$) | **Straight Up** | Folded across fist | Static vertical point hold, thumb on middle finger. |
+| **`D`** | **Static Hold** ($KE < 0.025$) | **Straight Up** | Pinched to middle tip | Thumb touches middle fingertip in a closed circle loop ($d_{tm\_tip} < 0.22$). |
+
+4. **Disambiguation Cheat-Sheets**:
+   * **`G` vs `Z`**: **`G`** is held **stationary** pointing horizontally/sideways. **`Z`** is a **moving stroke** drawn in the air. A static hand is never `Z`!
    * **`V` vs `3`**: In **`V`**, the thumb is folded across the palm. In ASL **`3`**, the thumb is sticking OUT to the side.
    * **`V` vs `W`**: In **`V`**, only 2 fingers are upright (ring is curled). In **`W`**, 3 fingers are upright (ring is extended).
    * **`W` vs `6`**: In **`W`**, fingers form a spread fan and thumb does not touch pinky tip. In **`6`**, thumb and pinky touch tip-to-tip.

@@ -857,7 +857,10 @@ def main():
 
             with st.expander("🔰 Beginner Testing Guide — Clear Sign Formation & Differentiation", expanded=False):
                 st.markdown("""
-                **How to distinguish easily confused signs (V, 3, W, 6):**
+                **How to distinguish easily confused signs:**
+                * 👉 **`G` (Letter G):** Index finger pointing **horizontally / sideways**, thumb parallel alongside index finger. **Hold stationary!**
+                * ⚡ **`Z` (Letter Z):** **Dynamic movement gesture!** Draw a "Z" in the air with your index finger (horizontal ➡️ diagonal ➡️ horizontal).
+                * ☝️ **`1` (Number 1):** Index finger pointing straight **UP**, other fingers in a fist, thumb folded across middle.
                 * ✌️ **`V` (Letter V / Peace Sign):** Index and middle fingers pointing straight UP in a spread "V". Ring and pinky curled into palm. **Thumb is folded across palm.**
                 * 🤟 **`3` (Number 3 in ASL):** Index and middle fingers pointing straight UP. Ring and pinky curled into palm. **Thumb is extended OUTWARD to the side.**
                 * 🖐️ **`W` (Letter W):** Index, middle, and ring fingers pointing UP and spread like a "W". Pinky curled into palm. **Thumb folded over pinky (not touching pinky tip).**
