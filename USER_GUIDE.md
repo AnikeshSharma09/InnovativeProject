@@ -267,19 +267,21 @@ Educational masterclass designed for beginners and non-signers:
 
 | Sign | Motion State | Hand Orientation | Thumb Placement | Decisive Feature |
 |---|---|---|---|---|
-| **`G`** | **Static Hold** ($KE < 0.025$) | **Horizontal / Sideways** | Parallel alongside index | Static horizontal index point with parallel thumb. |
-| **`Z`** | **Active Motion** ($KE \ge 0.028$) | Any (Traced in air) | Folded on fist | Air-drawn 'Z' trajectory (horizontal ➡️ diagonal ➡️ horizontal). |
-| **`1`** | **Static Hold** ($KE < 0.025$) | **Straight Up** | Folded across fist | Static vertical point hold, thumb on middle finger. |
-| **`D`** | **Static Hold** ($KE < 0.025$) | **Straight Up** | Pinched to middle tip | Thumb touches middle fingertip in a closed circle loop ($d_{tm\_tip} < 0.22$). |
+| **`G`** | **Static Hold** ($KE < 0.025$) | **Strictly Horizontal** ($\frac{\|dx\|}{\|dy\|} \ge 1.25$) | **Parallel Alongside Index** ($d_{tm\_mcp} \ge 0.45$) | Horizontal index point with uncurled parallel thumb ($\cos > 0.65$). |
+| **`Z`** | **Active Motion** ($KE \ge 0.028$) **or Static Hold** | **Diagonal Tilt** ($30^\circ-60^\circ$, $0.40 \le \frac{\|dx\|}{\|dy\|} < 1.25$) | **Folded on Fist** ($d_{tm\_mcp} < 0.45$) | Dynamic air-drawn stroke ($KE \ge 0.028$) OR static diagonal index hold with thumb curled over fist. |
+| **`1`** | **Static Hold** ($KE < 0.025$) | **Straight Up** ($\frac{\|dx\|}{\|dy\|} < 0.40$) | Folded across fist | Static vertical point hold, thumb resting across middle finger. |
+| **`D`** | **Static Hold** ($KE < 0.025$) | **Straight Up** ($\frac{\|dx\|}{\|dy\|} < 0.40$) | **Pinched to middle tip** ($d_{tm\_tip} < 0.22$) | Thumb touches middle fingertip in a closed circular loop. |
 
 4. **Disambiguation Cheat-Sheets**:
-   * **`G` vs `Z`**: **`G`** is held **stationary** pointing horizontally/sideways. **`Z`** is a **moving stroke** drawn in the air. A static hand is never `Z`!
+   * **`G` vs `Z`**: 
+     - **`G`** requires a **strictly horizontal** index finger pointing sideways ($\frac{\|dx\|}{\|dy\|} \ge 1.25$) AND an **uncurled thumb extended parallel** alongside the index finger.
+     - **`Z`** is either **dynamically traced in the air** (zigzag stroke) OR held as a **diagonal index point** ($30^\circ-60^\circ$ inward/outward) with the **thumb folded across the fist**. Natural hand tilt in front of the camera will never accidentally trigger `G`!
    * **`V` vs `3`**: In **`V`**, the thumb is folded across the palm. In ASL **`3`**, the thumb is sticking OUT to the side.
    * **`V` vs `W`**: In **`V`**, only 2 fingers are upright (ring is curled). In **`W`**, 3 fingers are upright (ring is extended).
    * **`W` vs `6`**: In **`W`**, fingers form a spread fan and thumb does not touch pinky tip. In **`6`**, thumb and pinky touch tip-to-tip.
    * **`U` vs `V`**: Index and middle fingers pressed touching parallel (`U`) vs spread apart in a "V" (`V`).
    * **`C` vs `O`**: Open semi-circle gap $\ge 40\%$ (`C`) vs fingertips touching thumb in a closed loop (`O`).
-   * **`Z` vs `1`**: Dynamic zigzag air-drawing stroke (`Z`) vs static vertical point hold (`1`).
+   * **`Z` vs `1`**: Diagonal index point or dynamic stroke (`Z`) vs static upright vertical index point (`1`).
 
 ---
 

@@ -181,6 +181,43 @@ class TestGZDisambiguation(unittest.TestCase):
         )
         self.assertEqual(self.classes[int(np.argmax(probs_out))], "L")
 
+    def test_user_screenshot_diagonal_z_pose(self):
+        """Replicates user's screenshot: static diagonal index finger, thumb folded on fist.
+        Even with 90% hostile false G prediction, diagonal pose with folded thumb MUST predict Z.
+        """
+        hand = build_1finger_synthetic_hand(
+            thumb_pos=[0.48, 0.52, 0.0],     # Thumb folded on middle MCP / proximal fist
+            v_idx_dir=[-0.18, -0.25]         # Diagonal index (~36 deg tilt from vertical, ratio=0.72)
+        )
+        probs_in = self._make_probs("G", 0.90, "Z", 0.05)
+        probs_out, note = self.predictor._apply_anatomical_disambiguation(
+            hand, probs_in, kinetic_energy=0.005
+        )
+        pred_label = self.classes[int(np.argmax(probs_out))]
+        self.assertEqual(pred_label, "Z", f"Expected 'Z' but got '{pred_label}' (note: {note})")
+        self.assertGreaterEqual(probs_out[self.classes.index("Z")], 0.80)
+        self.assertLessEqual(probs_out[self.classes.index("G")], 0.02)
+
+    def test_canonical_z_and_g_with_hostile_priors(self):
+        """Ensures canonical Z and G 3D landmarks are 100% mutually exclusive."""
+        import json
+        with open("data/canonical_signs_3d.json", "r") as f:
+            canon = json.load(f)
+
+        # Canonical Z with 90% false G
+        probs_in_z = self._make_probs("G", 0.90, "Z", 0.05)
+        probs_out_z, note_z = self.predictor._apply_anatomical_disambiguation(
+            canon["Z"], probs_in_z, kinetic_energy=0.005
+        )
+        self.assertEqual(self.classes[int(np.argmax(probs_out_z))], "Z", f"Canonical Z failed: {note_z}")
+
+        # Canonical G with 90% false Z
+        probs_in_g = self._make_probs("Z", 0.90, "G", 0.05)
+        probs_out_g, note_g = self.predictor._apply_anatomical_disambiguation(
+            canon["G"], probs_in_g, kinetic_energy=0.005
+        )
+        self.assertEqual(self.classes[int(np.argmax(probs_out_g))], "G", f"Canonical G failed: {note_g}")
+
 
 if __name__ == "__main__":
     unittest.main()

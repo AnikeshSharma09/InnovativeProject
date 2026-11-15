@@ -384,6 +384,7 @@ class SignPredictor:
 
         # Thumb kinematics (abduction & extension)
         d_ti_mcp = float(np.linalg.norm(t_tip - i_mcp) / palm)
+        d_tm_mcp = float(np.linalg.norm(t_tip - m_mcp) / palm)
         d_tw = float(np.linalg.norm(t_tip - w) / palm)
         d_tp_mcp = float(np.linalg.norm(t_tip - p_mcp) / palm)
         thumb_ext = (d_tp_mcp >= 0.80) and (d_tw >= 0.75)
@@ -562,13 +563,15 @@ class SignPredictor:
             else:
                 # ---------------------------------------------------------
                 # CASE B: Static Hold (kinetic_energy < 0.028)
-                # In a static hold, ASL 'Z' is linguistically and physically impossible.
+                # Differentiate G (horizontal index + parallel extended thumb)
+                # vs Z (diagonal index hold with thumb folded across fist)
+                # vs D (vertical index with thumb-middle circular loop)
+                # vs 1 (vertical index with thumb folded across fist).
                 # ---------------------------------------------------------
-                if "Z" in self.classes:
-                    probs[self.classes.index("Z")] = min(probs[self.classes.index("Z")], 0.005)
+                ratio_xy = float(abs(v_idx[0]) / (abs(v_idx[1]) + 1e-6))
+                is_thumb_folded = d_tm_mcp < 0.45
+                is_g_pose = (ratio_xy >= 1.25 or v_idx[1] > -0.05) and (not is_thumb_folded) and (cos_thumb_idx > 0.65)
 
-                is_sideways = (abs(v_idx[0]) > abs(v_idx[1]) * 0.50) or (v_idx[1] > -0.12)
-                is_g_pose = is_sideways and (cos_thumb_idx > 0.60 or d_tm_pip > 0.35 or top1_label == "G")
                 if is_g_pose:
                     for wrong_cls in ["Z", "1", "D"]:
                         if wrong_cls in self.classes:
@@ -578,31 +581,40 @@ class SignPredictor:
                         probs = probs * 0.05
                         probs[g_idx] = 0.88
                         probs = probs / np.sum(probs)
-                        disambig_notes.append("Static horizontal/parallel index point -> 'G'")
+                        disambig_notes.append("Static horizontal index point with parallel thumb -> 'G'")
+                elif d_tm < 0.22 and ratio_xy < 0.40:
+                    # Static upright pointing with thumb touching middle tip in a circular loop -> 'D'
+                    for wrong_cls in ["G", "Z", "1"]:
+                        if wrong_cls in self.classes:
+                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                    if "D" in self.classes:
+                        d_idx = self.classes.index("D")
+                        probs = probs * 0.05
+                        probs[d_idx] = 0.88
+                        probs = probs / np.sum(probs)
+                        disambig_notes.append(f"Thumb-middle tip loop (d_tm={d_tm:.2f}) -> 'D'")
+                elif ratio_xy >= 0.40 or ((top1_label == "Z" or top2_label == "Z") and ratio_xy >= 0.30):
+                    # Static diagonal index point (ASL 'Z' handshape) with folded thumb -> 'Z'
+                    for wrong_cls in ["G", "1", "D"]:
+                        if wrong_cls in self.classes:
+                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                    if "Z" in self.classes:
+                        z_idx = self.classes.index("Z")
+                        probs = probs * 0.05
+                        probs[z_idx] = 0.88
+                        probs = probs / np.sum(probs)
+                        disambig_notes.append(f"Diagonal index pose (ratio={ratio_xy:.2f}) with folded thumb -> 'Z'")
                 else:
-                    # Static upright pointing: 'D' vs '1'
-                    if d_tm < 0.22:
-                        # Thumb touches middle tip in a circular loop -> 'D'
-                        if "D" in self.classes:
-                            for wrong_cls in ["G", "Z", "1"]:
-                                if wrong_cls in self.classes:
-                                    probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                            d_idx = self.classes.index("D")
-                            probs = probs * 0.05
-                            probs[d_idx] = 0.88
-                            probs = probs / np.sum(probs)
-                            disambig_notes.append(f"Thumb-middle tip loop (d_tm={d_tm:.2f}) -> 'D'")
-                    else:
-                        # Thumb folded across fist, index pointing straight up -> '1'
-                        if "1" in self.classes:
-                            for wrong_cls in ["G", "Z", "D"]:
-                                if wrong_cls in self.classes:
-                                    probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
-                            one_idx = self.classes.index("1")
-                            probs = probs * 0.05
-                            probs[one_idx] = 0.88
-                            probs = probs / np.sum(probs)
-                            disambig_notes.append("Static upright index point -> '1'")
+                    # Static upright index point -> '1'
+                    for wrong_cls in ["G", "Z", "D"]:
+                        if wrong_cls in self.classes:
+                            probs[self.classes.index(wrong_cls)] = min(probs[self.classes.index(wrong_cls)], 0.005)
+                    if "1" in self.classes:
+                        one_idx = self.classes.index("1")
+                        probs = probs * 0.05
+                        probs[one_idx] = 0.88
+                        probs = probs / np.sum(probs)
+                        disambig_notes.append("Static upright index point -> '1'")
 
         # -------------------------------------------------------------
         # 4. Fine-Grained Pairwise Disambiguations
